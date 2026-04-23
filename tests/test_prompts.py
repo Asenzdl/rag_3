@@ -366,16 +366,24 @@ class TestBuildMessages:
         assert len(messages) == 4
 
     def test_with_chat_history_has_placeholder(self):
-        """含 chat_history 时，最后一条是 MessagesPlaceholder。"""
+        """含 chat_history 时，MessagesPlaceholder 存在且位于 HumanMessagePromptTemplate 之前。"""
         messages = _build_messages(
             system_template=SYSTEM_TEMPLATE_V1,
             human_template=HUMAN_TEMPLATE_V1,
             include_chat_history=True,
         )
-        assert isinstance(messages[-1], MessagesPlaceholder)
+        # 找到 MessagesPlaceholder 和 HumanMessagePromptTemplate 的索引
+        placeholder_idx = next(
+            i for i, m in enumerate(messages) if isinstance(m, MessagesPlaceholder)
+        )
+        human_idx = next(
+            i for i, m in enumerate(messages) if isinstance(m, HumanMessagePromptTemplate)
+        )
+        assert isinstance(messages[placeholder_idx], MessagesPlaceholder)
+        assert placeholder_idx < human_idx
 
     def test_messages_order(self):
-        """消息顺序正确：System → [Few-shot] → Human → [ChatHistory]。"""
+        """消息顺序正确：System → [Few-shot] → ChatHistory → Human。"""
         messages = _build_messages(
             system_template=SYSTEM_TEMPLATE_V2,
             human_template=HUMAN_TEMPLATE_V2,
@@ -387,7 +395,44 @@ class TestBuildMessages:
         # 第2-3条：Few-shot Human + AI
         assert isinstance(messages[1], HumanMessage)
         assert isinstance(messages[2], AIMessage)
-        # 第4条：HumanMessagePromptTemplate
-        assert isinstance(messages[3], HumanMessagePromptTemplate)
-        # 第5条：MessagesPlaceholder
-        assert isinstance(messages[4], MessagesPlaceholder)
+        # 第4条：MessagesPlaceholder（chat_history 在 Human 之前）
+        assert isinstance(messages[3], MessagesPlaceholder)
+        # 第5条：HumanMessagePromptTemplate（当前问题在末尾）
+        assert isinstance(messages[4], HumanMessagePromptTemplate)
+
+    def test_chat_history_before_human_message(self):
+        """MessagesPlaceholder 的索引严格小于 HumanMessagePromptTemplate 的索引。"""
+        messages = _build_messages(
+            system_template=SYSTEM_TEMPLATE_V1,
+            human_template=HUMAN_TEMPLATE_V1,
+            include_chat_history=True,
+        )
+        placeholder_idx = next(
+            i for i, m in enumerate(messages) if isinstance(m, MessagesPlaceholder)
+        )
+        human_idx = next(
+            i for i, m in enumerate(messages) if isinstance(m, HumanMessagePromptTemplate)
+        )
+        assert placeholder_idx < human_idx
+
+    def test_invoke_with_chat_history_correct_order(self):
+        """invoke 后消息列表中 chat_history 消息在当前 HumanMessage 之前。"""
+        prompt = get_prompt(PromptVersion.V2, include_chat_history=True)
+        result = prompt.invoke({
+            "context": "Test context.",
+            "question": "当前问题",
+            "chat_history": [
+                HumanMessage(content="历史问题"),
+                AIMessage(content="历史回答"),
+            ],
+        })
+        messages = result.to_messages()
+        # 找到历史消息和当前 HumanMessage 的位置
+        history_question_idx = next(
+            i for i, m in enumerate(messages) if m.content == "历史问题"
+        )
+        current_question_idx = next(
+            i for i, m in enumerate(messages)
+            if isinstance(m, HumanMessage) and "当前问题" in m.content
+        )
+        assert history_question_idx < current_question_idx

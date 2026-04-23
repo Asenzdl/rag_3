@@ -187,8 +187,14 @@ class CitationExtractor:
                         valid_count=sum(1 for c in citations if c.is_valid),
                     )
                     return citations
-                except (NotImplementedError, Exception) as e:
-                    # 模型不支持 Function Calling 或其他异常，回退到正则
+                except NotImplementedError:
+                    # 模型不支持 Function Calling，回退到正则策略
+                    logger.warning("模型不支持 Function Calling，回退到正则策略")
+                except CitationExtractionError:
+                    # _extract_structured 已包装的已知异常，向上传播
+                    raise
+                except Exception as e:
+                    # 其他未知异常，防御性兜底回退到正则策略
                     logger.warning(
                         "结构化输出失败，回退到正则策略",
                         error=str(e),

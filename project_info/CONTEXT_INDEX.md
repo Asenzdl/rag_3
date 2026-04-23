@@ -8,21 +8,15 @@
 
 ## ⚙️ 自动维护规则
 
-> **本文件由 AI 在以下时机自动更新，无需人工提醒：**
-> 1. **阶段1 设计完成时**：如果本 Task 新增/删除/重命名了模块文件或公共类，立即更新「核心模块定位表」
-> 2. **阶段2 代码实现完成时**：更新「核心模块定位表」中的主类/函数和职责描述；更新「关键配置变量表」
-> 3. **阶段3 文档生成完成时**：无需更新本文件
-> 4. **Task 状态变更时**：更新「Task 进度」表中对应 Task 的状态和产出
-> 5. **模块公共导出变化时**：更新 `__init__.py` 相关的导出信息
->
+> **本文件由 AI 在 Task 执行完成时一次性自动更新，无需人工提醒：**
 > **更新原则**：增量修改，不重写全文。只有变更的部分才需更新。
 
 ---
 
 ## 📍 当前 Task
 
-- **Task 1.9 状态** → 未开始（Prompt 接口修复与代码质量改善）
-- **Phase 1 Task 1.0~1.8 已完成**，Task 1.9~1.11 待执行
+- **Task 1.9 状态** → ✅ 完成（Prompt 接口修复与代码质量改善）
+- **Phase 1 Task 1.0~1.8 已完成**，Task 1.10~1.11 待执行
 - **Phase 2 待开始**
 
 ---
@@ -41,13 +35,13 @@
 | 向量入库 | `src/ingestion/vectorstore.py` | `ingest_to_chroma()` | Chroma 向量库写入 |
 | 入库流水线 | `src/ingestion/load_data.py` | `run_pipeline()` | 端到端入库编排 |
 | 基础检索 | `src/retriever/base_retriever.py` | `VectorRetriever` `create_vector_retriever()` `get_vectorstore()` | 向量检索封装（单例 + 日志 + 异常转换） |
-| Prompt 工程 | `src/generation/prompts.py` | `PromptVersion` `get_prompt()` `PROMPT_REGISTRY` | 模板版本管理（V1/V2）+ few-shot ⚠️ Task 1.9 将修复 chat_history 位置 |
+| Prompt 工程 | `src/generation/prompts.py` | `PromptVersion` `get_prompt()` `PROMPT_REGISTRY` | 模板版本管理（V1/V2）+ few-shot + 对话历史占位符 |
 | RAG 链 | `src/generation/rag_chain.py` | `RAGChain` `RAGResponse` `format_docs()` | 问答链组装 + 流式输出 |
 | 引用提取 | `src/generation/citation_chain.py` | `CitationExtractor` `Citation` `ValidatedCitation` | 引用标记提取 + URL 验证 |
 | 生成异常 | `src/generation/exceptions.py` | `GenerationError` `CitationExtractionError` `EmptyRetrievalError` `LLMCallError` | 生成模块异常体系 |
 | 检索评估 | `src/evaluation/retrieval_eval.py` | `RetrievalEvaluator` `ExactSourceMatcher` `SourceMatcher` `run_baseline_eval()` | HitRate/MRR/NDCG 评估 |
 | 评估指标 | `src/evaluation/metrics.py` | `hit_rate_at_k()` `mrr_at_k()` `ndcg_at_k()` | 底层指标计算 |
-| 评估数据集 | `src/evaluation/dataset.py` | `EvalSample` `load_eval_dataset()` | QA pairs 加载 ⚠️ Task 1.9 将 print→logger |
+| 评估数据集 | `src/evaluation/dataset.py` | `EvalSample` `load_eval_dataset()` | QA pairs 加载 + 结构化日志 |
 | 结构化日志 | `src/utils/logger.py` | `setup_logging()` `bind_request_id()` `unbind_request_id()` | structlog 配置 + 请求 ID 绑定 |
 | 重试机制 | `src/utils/retry.py` | `create_llm_retry_decorator()` `with_retry()` | tenacity 重试 + 指数退避 |
 | CLI 入口 | `src/app.py` | `main()` `cli_loop()` `ChatSession` | REPL 交互 + RAGChain 调用 |
@@ -115,7 +109,7 @@
 | 1.6 基础 RAG Chain | ✅ 完成 | rag_chain.py, citation_chain.py |
 | 1.7 重试与日志 | ✅ 完成 | retry.py, logger.py |
 | 1.8 CLI 与 E2E | ✅ 完成 | app.py |
-| 1.9 Prompt 接口修复与代码质量改善 | ⏳ 待执行 | — |
+| 1.9 Prompt 接口修复与代码质量改善 | ✅ 完成 | prompts.py(修复chat_history位置), citation_chain.py(异常拆分), dataset.py(logger替换) |
 | 1.10 配置管理、工厂模式与检索器协议抽象 | ⏳ 待执行 | — |
 | 1.11 RAGChain 方法拆分与代码质量改善 | ⏳ 待执行 | — |
 

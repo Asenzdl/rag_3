@@ -208,8 +208,8 @@ def _build_messages(
     消息顺序（LangChain Chat 模型惯例）：
         1. SystemMessage — 全局行为指令（角色、语言、引用格式）
         2. [Few-shot 示例对] — Human + AI 示例（可选，提升格式遵从度）
-        3. HumanMessage — 当前问题 + 上下文（核心交互消息）
-        4. [MessagesPlaceholder("chat_history")] — 对话历史（可选，Task 2.5 预留）
+        3. [MessagesPlaceholder("chat_history")] — 对话历史（可选，Task 2.5 预留）
+        4. HumanMessage — 当前问题 + 上下文（核心交互消息，必须在列表末尾）
 
     为什么 Few-shot 放在 System 和当前 Human 之间：
         这是 Chat 模型的标准 few-shot 位置，模型会模仿紧邻示例的格式。
@@ -239,18 +239,22 @@ def _build_messages(
             messages.append(human_msg)
             messages.append(ai_msg)
 
-    # 第3步：Human Message — 当前问题 + 上下文
-    # 这是核心交互消息，包含 {context} 和 {question} 变量
-    messages.append(HumanMessagePromptTemplate.from_template(human_template))
-
-    # 第4步：Chat history 占位符（可选，为 Task 2.5 对话记忆预留）
+    # 第3步：Chat history 占位符（可选，为 Task 2.5 对话记忆预留）
     # 为什么用 MessagesPlaceholder：
     #   1. 标准的 LangChain 方式，与 LCEL 完美集成
     #   2. 支持动态插入任意数量的历史消息
     #   3. 调用方只需传入 chat_history=[...] 即可
+    # 为什么在 HumanMessage 之前：Chat 模型要求当前问题在消息列表末尾，
+    #   对话历史必须在当前 Human 消息之前，模型先看到历史再回答当前问题
     # 注意：启用时调用方必须传入 chat_history 参数（即使为空列表 []）
     if include_chat_history:
         messages.append(MessagesPlaceholder("chat_history"))
+
+    # 第4步：Human Message — 当前问题 + 上下文
+    # 这是核心交互消息，包含 {context} 和 {question} 变量
+    # 为什么必须在列表末尾：Chat 模型的 attention 对末尾 token 权重更高，
+    #   当前问题在末尾才能确保模型优先关注当前输入
+    messages.append(HumanMessagePromptTemplate.from_template(human_template))
 
     return messages
 

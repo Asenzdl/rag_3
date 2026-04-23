@@ -280,17 +280,29 @@ class TestStructuredExtraction:
         assert len(citations) == 2  # 正则策略的预期结果
 
     def test_structured_output_fallback_on_general_error(self):
-        """异常路径：结构化输出一般异常时回退到正则。"""
+        """异常路径：结构化输出一般异常时包装为 CitationExtractionError 并向上传播。"""
         mock_llm = MagicMock()
         mock_structured = MagicMock()
         mock_structured.invoke.side_effect = RuntimeError("Unexpected error")
         mock_llm.with_structured_output.return_value = mock_structured
 
         extractor = CitationExtractor(llm=mock_llm, use_structured_output=True)
-        # 应回退到正则策略
-        citations = extractor.extract(SAMPLE_ANSWER, SAMPLE_SOURCES)
+        # RuntimeError 被 _extract_structured 包装为 CitationExtractionError，
+        # extract() 内部 except CitationExtractionError: raise 向上传播
+        with pytest.raises(CitationExtractionError):
+            extractor.extract(SAMPLE_ANSWER, SAMPLE_SOURCES)
 
-        assert len(citations) == 2
+    def test_citation_extraction_error_propagates(self):
+        """CitationExtractionError 从 _extract_structured 传播到 extract() 外层。"""
+        mock_llm = MagicMock()
+        mock_structured = MagicMock()
+        # 模拟 _extract_structured 内部抛出 CitationExtractionError
+        mock_structured.invoke.side_effect = CitationExtractionError("解析失败")
+        mock_llm.with_structured_output.return_value = mock_structured
+
+        extractor = CitationExtractor(llm=mock_llm, use_structured_output=True)
+        with pytest.raises(CitationExtractionError, match="解析失败"):
+            extractor.extract(SAMPLE_ANSWER, SAMPLE_SOURCES)
 
     def test_structured_output_without_llm(self):
         """边界情况：启用结构化输出但未提供 LLM，回退到正则。"""

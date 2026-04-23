@@ -12,6 +12,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 
 @dataclass
 class EvalSample:
@@ -68,7 +72,7 @@ def load_eval_dataset(
             )
             samples.append(sample)
         except KeyError as e:
-            print(f"[WARN] 跳过第 {i} 条数据，缺少字段: {e}")
+            logger.warning("跳过数据，缺少字段", index=i, missing_field=str(e))
 
     return samples
 
