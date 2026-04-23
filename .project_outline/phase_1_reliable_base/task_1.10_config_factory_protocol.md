@@ -3,8 +3,6 @@
 ### 任务目标
 彻底解耦配置读取与对象实例化，建立符合 12-Factor App 规范的配置管理体系，并通过工厂模式 + Protocol 协议类实现消费侧的依赖倒置。三者（Settings / factories / RetrieverProtocol）作为同一抽象层（"依赖获取与声明"）一次性交付，避免中间状态和反复修改同一文件。
 
-**合并理由**：原 1.9（配置/工厂）与原 1.10（协议抽象）共同修改 `base_retriever.py`、`rag_chain.py`、`retrieval_eval.py`，且工厂返回类型与 Protocol 类型直接相关——如果工厂返回 `VectorRetriever` 具体类型，1.10 又得改签名返回 `RetrieverProtocol`。合并后工厂直接返回 Protocol 类型，一次到位。
-
 ### 涉及文件
 - 新增 `src/core/settings.py`
 - 新增 `src/core/factories.py`
