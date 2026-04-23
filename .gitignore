@@ -22,10 +22,6 @@ env/
 venv/
 
 .history/
-.qoder/repowiki/
-.qoder/agents/
-.qoderignore
 .pytest_cache/
 
-setup.py
 docs/   

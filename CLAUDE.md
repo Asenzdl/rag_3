@@ -52,7 +52,7 @@ tests/                           # [OUTPUT] 测试文件（直接生成，不写
 
 ### 1. 会话启动
 进入本项目的任何新会话，必须**首先读取**以下文件了解当前 Task 状态：
-1. `.qoder/CONTEXT_INDEX.md` - 项目上下文索引（定位表 + 路径映射 + 模块地图）
+1. `project_info/CONTEXT_INDEX.md` - 项目上下文索引（定位表 + 路径映射 + 模块地图）
 
 ### 2. 定位优先规则（防止探索式搜索）
 
@@ -75,13 +75,13 @@ tests/                           # [OUTPUT] 测试文件（直接生成，不写
 ## Task 执行触发
 
 当用户说 **"开始 Task X.X"** 时：
-1. 读取 `.qoder/task_execution_spec.md` 获取完整的三阶段执行流程
+1. 读取 `project_info/task_execution_spec.md` 获取完整的三阶段执行流程
 2. 用 `TaskCreate` 将流程详细转化为结构化任务列表（防止上下文衰减导致遗漏，**必须遵守**）
 3. 按任务列表逐步执行
 
 ## Task 执行三阶段概要
 
-> 详细规范见 `.qoder/task_execution_spec.md`，每次执行 Task 前必须完整读取
+> 详细规范见 `project_info/task_execution_spec.md`，每次执行 Task 前必须完整读取
 
 ### 审核模式
 
@@ -96,7 +96,7 @@ tests/                           # [OUTPUT] 测试文件（直接生成，不写
 ### 阶段1：反思驱动架构设计
 - 读取当前 Task 的 outline 文件（`.project_outline/phase_X/task_X.X_*.md`）
 - 查看 `.project_todo.md` 中当前 Task 需要支持的 TODO
-- 严格按照 `.qoder/task_doc_design_spec.md` 中的 **design.md 模板** 编写
+- 严格按照 `project_info/task_doc_design_spec.md` 中的 **design.md 模板** 编写
 - 按10维最佳实践逐维检查（详见 task_execution_spec.md）
 - 产出：`.project_tasks/phase_X/task_X.X_design.md`
 - **严禁包含完整实现代码和测试代码**
@@ -109,7 +109,7 @@ tests/                           # [OUTPUT] 测试文件（直接生成，不写
 
 ### 阶段3：技术学习文档
 - 生成 `docs/task_X.X/` 下的技术文档
-- 严格按照 `.qoder/tech_doc_design_spec.md` 中的 **技术文档模板 + 深度标准** 编写
+- 严格按照 `project_info/tech_doc_design_spec.md` 中的 **技术文档模板 + 深度标准** 编写
 - 分轮生成：规划轮 → 逐篇生成 + 深度自检 → 全量复查
 - 深度自检四问：去用测试、决策测试、诊断测试、洞察测试
 
@@ -117,7 +117,7 @@ tests/                           # [OUTPUT] 测试文件（直接生成，不写
 
 | 文件 | 用途 | 读取时机 |
 |------|------|---------|
-| `.qoder/CONTEXT_INDEX.md` | 模块定位表 + 路径映射 + Task 进度 | 每次会话启动时 + 定位文件时 |
-| `.qoder/task_execution_spec.md` | Task 三阶段执行流程完整规范 | 每次"开始 Task X.X"时 |
-| `.qoder/task_doc_design_spec.md` | design.md 架构设计文档模板 + 质量检查清单 | 阶段1 架构设计时 |
-| `.qoder/tech_doc_design_spec.md` | 技术学习文档模板 + 深度标准 + 自检 | 阶段3 技术文档编写时 |
+| `project_info/CONTEXT_INDEX.md` | 模块定位表 + 路径映射 + Task 进度 | 每次会话启动时 + 定位文件时 |
+| `project_info/task_execution_spec.md` | Task 三阶段执行流程完整规范 | 每次"开始 Task X.X"时 |
+| `project_info/task_doc_design_spec.md` | design.md 架构设计文档模板 + 质量检查清单 | 阶段1 架构设计时 |
+| `project_info/tech_doc_design_spec.md` | 技术学习文档模板 + 深度标准 + 自检 | 阶段3 技术文档编写时 |
