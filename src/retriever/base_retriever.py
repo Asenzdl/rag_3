@@ -12,7 +12,8 @@
    以添加结构化日志（查询内容、耗时、结果数量）和异常转换。
 
 使用示例：
-    retriever = create_vector_retriever(search_type="similarity", search_kwargs={"k": 3})
+    from src.core.factories import create_retriever
+    retriever = create_retriever(settings, search_kwargs={"k": 3})
     docs = retriever.invoke("什么是 LangGraph?")
 """
 
@@ -25,7 +26,6 @@ from langchain_chroma import Chroma
 from langchain_core.vectorstores import VectorStoreRetriever
 from typing import override  # Python 3.12+ 标准库，若低版本需从 typing_extensions 导入
 
-from src.core.config import ollama_embeddings
 from src.core.exceptions import NonRetryableError, RAGSystemError
 
 logger = structlog.get_logger(__name__)
@@ -127,6 +127,7 @@ class VectorRetriever(VectorStoreRetriever):
 def get_vectorstore(
     persist_directory: str = "db/langchain_docs_db1",
     collection_name: str = "langchain_docs1",
+    embedding_function: Optional[Any] = None,
 ) -> Chroma:
     """获取 Chroma 向量库实例（单例模式）。
 
@@ -135,9 +136,13 @@ def get_vectorstore(
     这避免了重复加载 Embedding 模型（Ollama 模型加载开销较大），
     在多次检索调用中显著提升性能。
 
+    Task 1.10 改动：新增 embedding_function 参数（依赖注入），
+    不再从 config 导入 ollama_embeddings，由调用方显式传入。
+
     Args:
         persist_directory: Chroma 数据持久化目录路径。
         collection_name: Chroma 集合名称，同一目录下可存在多个集合。
+        embedding_function: Embeddings 实例（由 create_embeddings 创建）。
 
     Returns:
         已连接并加载 Embedding 函数的 Chroma 向量库实例。
@@ -145,10 +150,14 @@ def get_vectorstore(
     Note:
         `maxsize=4` 可根据实际需要调整，用于限制缓存的不同向量库实例数量。
     """
+    if embedding_function is None:
+        raise ValueError(
+            "embedding_function 不能为 None，请通过 create_embeddings(settings) 获取实例后传入"
+        )
     return Chroma(
         persist_directory=persist_directory,
         collection_name=collection_name,
-        embedding_function=ollama_embeddings,
+        embedding_function=embedding_function,
     )
 
 
@@ -161,11 +170,15 @@ def create_vector_retriever(
     collection_name: str = "langchain_docs1",
     search_type: str = "similarity",
     search_kwargs: Optional[Dict[str, Any]] = None,
+    embedding_function: Optional[Any] = None,
 ) -> VectorRetriever:
     """创建并返回配置好的 VectorRetriever 实例。
 
     这是一个工厂函数，封装了向量库获取与检索器实例化的过程。
     默认返回 Top-5 相似度检索器。
+
+    Task 1.10 改动：新增 embedding_function 参数（依赖注入），
+    不再从 config 导入 ollama_embeddings，由调用方显式传入。
 
     Args:
         persist_directory: Chroma 数据目录，传递给 `get_vectorstore`。
@@ -177,6 +190,7 @@ def create_vector_retriever(
             - `score_threshold`: 相似度阈值（仅当 search_type="similarity_score_threshold" 时有效）
             - `fetch_k`: MMR 算法中的候选池大小
             - `lambda_mult`: MMR 算法中的多样性权重
+        embedding_function: Embeddings 实例（由 create_embeddings 创建）。
 
     Returns:
         VectorRetriever: 已配置好向量库连接、检索类型和参数的检索器实例。
@@ -184,7 +198,9 @@ def create_vector_retriever(
     Raises:
         UnsupportedSearchTypeError: 当 `search_type` 不被支持时（由检索器内部抛出）。
     """
-    vectorstore = get_vectorstore(persist_directory, collection_name)
+    vectorstore = get_vectorstore(
+        persist_directory, collection_name, embedding_function=embedding_function
+    )
 
     # 复制字典以避免修改调用方的原始对象
     kwargs = search_kwargs.copy() if search_kwargs else {}

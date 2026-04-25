@@ -20,6 +20,7 @@ import structlog
 
 from src.evaluation.dataset import EvalSample
 from src.evaluation.metrics import hit_rate_at_k, mrr_at_k, ndcg_at_k
+from src.retriever.protocols import RetrieverProtocol
 
 logger = structlog.get_logger(__name__)
 
@@ -109,7 +110,7 @@ class RetrievalEvaluator:
 
     def __init__(
         self,
-        retriever,
+        retriever: RetrieverProtocol,
         eval_samples: List[EvalSample],
         matcher: Optional[SourceMatcher] = None,
         ks: Optional[List[int]] = None,
@@ -311,8 +312,8 @@ class RetrievalEvaluator:
 # ============================================================
 
 def run_baseline_eval(
-    qa_path: str = "data/eval/qa_pairs.json",
-    output_path: str = "data/eval/baseline_retrieval_report.md",
+    qa_path: Optional[str] = None,
+    output_path: Optional[str] = None,
     ks: Optional[List[int]] = None,
     search_type: str = "similarity",
     search_k: int = 10,
@@ -320,8 +321,8 @@ def run_baseline_eval(
     """运行 Baseline 检索评估并保存报告。
 
     Args:
-        qa_path: QA pairs JSON 文件路径。
-        output_path: 评估报告输出路径。
+        qa_path: QA pairs JSON 文件路径。默认从 settings.eval_qa_path 读取。
+        output_path: 评估报告输出路径。默认从 settings.eval_report_path 读取。
         ks: 评估的 k 值列表，默认 [3, 5, 10]。
         search_type: 检索器搜索类型。
         search_k: 检索器返回的文档数量（需 >= max(ks)）。
@@ -329,17 +330,25 @@ def run_baseline_eval(
     Returns:
         EvalReport 实例。
     """
+    from src.core.config import settings
+    from src.core.factories import create_retriever
     from src.evaluation.dataset import load_eval_dataset
-    from src.retriever.base_retriever import create_vector_retriever
+
+    # 从 settings 读取默认路径
+    if qa_path is None:
+        qa_path = settings.eval_qa_path
+    if output_path is None:
+        output_path = settings.eval_report_path
 
     # 步骤 1：加载评估数据集
     logger.info("加载评估数据集", path=qa_path)
     samples = load_eval_dataset(qa_path)
 
-    # 步骤 2：创建检索器（返回足够多的文档以支持最大 k 值）
+    # 步骤 2：创建检索器（通过工厂函数，配置驱动）
     if ks is None:
         ks = [3, 5, 10]
-    retriever = create_vector_retriever(
+    retriever = create_retriever(
+        settings,
         search_type=search_type,
         search_kwargs={"k": search_k},
     )

@@ -15,9 +15,15 @@
 
 4. **空检索拦截**：检索返回空文档时直接返回预设回复，不调用 LLM（节省开销）。
 
+5. **依赖倒置**：retriever 参数类型为 RetrieverProtocol（协议），而非 VectorRetriever（具体），
+   任何实现了 invoke(self, query: str) -> List[Document] 的对象均可注入。
+
 使用示例：
-    # 快速启动
-    chain = RAGChain.create()
+    # 快速启动（推荐方式）
+    from src.core.config import settings
+    from src.core.factories import create_rag_chain
+
+    chain = create_rag_chain(settings)
     result = chain.invoke("LangGraph 是什么？")
     print(result.answer)
     print(result.citations)
@@ -26,14 +32,14 @@
     for chunk in chain.stream("LangGraph 是什么？"):
         print(chunk, end="", flush=True)
 
-    # 自定义配置
-    from src.retriever import create_vector_retriever
+    # 自定义配置（依赖注入）
+    from src.core.factories import create_retriever, create_llm
     from src.generation.prompts import get_prompt, PromptVersion
-    from src.core.config import deepseek_llm
 
-    retriever = create_vector_retriever(search_kwargs={"k": 3})
+    retriever = create_retriever(settings, search_kwargs={"k": 3})
+    llm = create_llm("deepseek", settings)
     prompt = get_prompt(PromptVersion.V1)
-    chain = RAGChain(retriever=retriever, llm=deepseek_llm, prompt=prompt)
+    chain = RAGChain(retriever=retriever, llm=llm, prompt=prompt)
 """
 
 import time
@@ -45,9 +51,7 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.vectorstores import VectorStoreRetriever
 
-from src.core.config import deepseek_llm
 from src.generation.citation_chain import CitationExtractor, ValidatedCitation
 from src.generation.exceptions import (
     CitationExtractionError,
@@ -55,11 +59,8 @@ from src.generation.exceptions import (
     GenerationError,
     LLMCallError,
 )
-from src.generation.prompts import PromptVersion, get_prompt
-from src.retriever.base_retriever import (
-    RetrievalError,
-    create_vector_retriever,
-)
+from src.retriever.base_retriever import RetrievalError
+from src.retriever.protocols import RetrieverProtocol
 from src.utils.retry import with_retry
 
 logger = structlog.get_logger(__name__)
@@ -201,7 +202,7 @@ class RAGChain:
 
     def __init__(
         self,
-        retriever: VectorStoreRetriever,
+        retriever: RetrieverProtocol,
         llm: BaseChatModel,
         prompt: ChatPromptTemplate,
         citation_extractor: Optional[CitationExtractor] = None,
@@ -211,7 +212,7 @@ class RAGChain:
         """初始化 RAGChain。
 
         Args:
-            retriever: 向量检索器实例
+            retriever: 检索器实例（满足 RetrieverProtocol 协议即可）
             llm: Chat 模型实例
             prompt: ChatPromptTemplate 实例
             citation_extractor: 引用提取器，默认创建正则策略的 CitationExtractor()
@@ -536,65 +537,3 @@ class RAGChain:
                 "引用提取失败", error=str(e), answer_length=len(answer)
             )
             return []
-
-    @classmethod
-    def create(
-        cls,
-        persist_directory: str = "db/langchain_docs_db1",
-        collection_name: str = "langchain_docs1",
-        search_type: str = "similarity",
-        search_kwargs: Optional[Dict[str, Any]] = None,
-        prompt_version: PromptVersion = PromptVersion.V2,
-        include_few_shot: bool = True,
-        include_chat_history: bool = False,
-    ) -> "RAGChain":
-        """工厂方法：使用默认配置创建 RAGChain 实例。
-
-        封装 retriever、llm、prompt 的创建细节，调用方只需一行代码即可创建链。
-
-        为什么默认使用 V2 + few_shot：
-            V2 的跨语言策略和严格引用格式规范配合 few-shot 示例，
-            引用格式遵从度最高，适合生产级默认配置。
-            V1 作为降级选项，在 V2 出现问题时快速切换。
-
-        Args:
-            persist_directory: Chroma 数据目录
-            collection_name: Chroma 集合名称
-            search_type: 检索类型
-            search_kwargs: 检索参数（默认 k=5）
-            prompt_version: Prompt 版本
-            include_few_shot: 是否包含 few-shot 示例
-            include_chat_history: 是否包含对话历史占位符
-
-        Returns:
-            配置好的 RAGChain 实例
-        """
-        # 第1步：创建检索器
-        retriever = create_vector_retriever(
-            persist_directory=persist_directory,
-            collection_name=collection_name,
-            search_type=search_type,
-            search_kwargs=search_kwargs,
-        )
-
-        # 第2步：获取 LLM 实例（从 src.core.config 导入）
-        llm = deepseek_llm
-
-        # 第3步：创建 Prompt 模板
-        prompt = get_prompt(
-            prompt_version,
-            include_few_shot=include_few_shot,
-            include_chat_history=include_chat_history,
-        )
-
-        # 第4步：创建并返回 RAGChain 实例
-        logger.info(
-            "RAGChain 工厂创建",
-            persist_directory=persist_directory,
-            collection_name=collection_name,
-            search_type=search_type,
-            prompt_version=prompt_version.value,
-            include_few_shot=include_few_shot,
-        )
-
-        return cls(retriever=retriever, llm=llm, prompt=prompt)

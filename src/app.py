@@ -32,7 +32,9 @@ import structlog
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
+from src.core.config import settings
 from src.core.exceptions import RAGSystemError
+from src.core.factories import create_rag_chain
 from src.generation.citation_chain import ValidatedCitation
 from src.generation.rag_chain import RAGChain
 from src.utils.logger import bind_request_id, setup_logging, unbind_request_id
@@ -409,7 +411,7 @@ def main() -> None:
     初始化顺序（为什么这样排序）：
         1. load_dotenv() — 确保 API Key 可用（config.py 导入时需要）
         2. setup_logging() — 配置日志（后续所有操作都有日志）
-        3. RAGChain.create() — 创建链（依赖 config.py 中的 LLM 和检索器）
+        3. create_rag_chain(settings) — 通过工厂函数创建链（配置驱动）
         4. cli_loop() — 启动 REPL（依赖 chain 实例）
 
     Raises:
@@ -428,9 +430,9 @@ def main() -> None:
     # 步骤 3：记录启动日志
     logger.info("RAG CLI 启动")
 
-    # 步骤 4：创建 RAGChain
+    # 步骤 4：创建 RAGChain（通过工厂函数，配置驱动）
     try:
-        chain = RAGChain.create()
+        chain = create_rag_chain(settings)
     except RAGSystemError as e:
         logger.error("RAGChain 初始化失败", error=str(e))
         print(f"❌ 初始化失败：{e}")

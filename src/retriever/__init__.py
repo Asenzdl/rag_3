@@ -6,6 +6,7 @@ from .base_retriever import (
     create_vector_retriever,
     get_vectorstore,
 )
+from .protocols import RetrieverProtocol
 
 __all__ = [
     "RetrievalError",
@@ -13,4 +14,5 @@ __all__ = [
     "VectorRetriever",
     "create_vector_retriever",
     "get_vectorstore",
+    "RetrieverProtocol",
 ]

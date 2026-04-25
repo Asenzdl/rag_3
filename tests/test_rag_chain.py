@@ -5,9 +5,8 @@
 2. stream 方法：正常路径、空检索、生成失败
 3. retrieve 方法：正常路径、检索异常
 4. extract_citations 方法：正常路径、提取失败
-5. create 工厂方法
-6. format_docs 函数
-7. RAGResponse 数据结构
+5. format_docs 函数
+6. RAGResponse 数据结构
 """
 
 import pytest
