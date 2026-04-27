@@ -606,14 +606,14 @@ class TestE2EWithQAPairs:
 class TestMain:
     """main() 函数的测试。"""
 
-    @patch("src.app.RAGChain")
+    @patch("src.app.create_rag_chain")
     @patch("src.app.setup_logging")
     @patch("src.app.load_dotenv")
-    def test_main_success(self, mock_dotenv, mock_setup_logging, mock_ragchain_class, capsys):
+    def test_main_success(self, mock_dotenv, mock_setup_logging, mock_create_chain, capsys):
         """main() 正常初始化并启动 REPL。"""
-        # Mock RAGChain.create() 返回实例
+        # Mock create_rag_chain() 返回实例
         mock_chain = MagicMock()
-        mock_ragchain_class.create.return_value = mock_chain
+        mock_create_chain.return_value = mock_chain
 
         # Mock cli_loop 通过 input 触发立即退出
         with patch("builtins.input", side_effect=EOFError):
@@ -623,16 +623,16 @@ class TestMain:
         mock_dotenv.assert_called_once_with(override=True)
         # 验证 setup_logging 被调用
         mock_setup_logging.assert_called_once_with(level="INFO", json_format=False)
-        # 验证 RAGChain.create() 被调用
-        mock_ragchain_class.create.assert_called_once()
+        # 验证 create_rag_chain() 被调用
+        mock_create_chain.assert_called_once()
 
-    @patch("src.app.RAGChain")
+    @patch("src.app.create_rag_chain")
     @patch("src.app.setup_logging")
     @patch("src.app.load_dotenv")
-    def test_main_init_failure(self, mock_dotenv, mock_setup_logging, mock_ragchain_class):
+    def test_main_init_failure(self, mock_dotenv, mock_setup_logging, mock_create_chain):
         """main() 初始化失败时以非零状态码退出。"""
-        # Mock RAGChain.create() 抛出 RAGSystemError
-        mock_ragchain_class.create.side_effect = RAGSystemError("向量库不存在")
+        # Mock create_rag_chain() 抛出 RAGSystemError
+        mock_create_chain.side_effect = RAGSystemError("向量库不存在")
 
         with pytest.raises(SystemExit) as exc_info:
             main()

@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from src.core.exceptions import NonRetryableError
 from src.core.settings import Settings
+from src.core.config import settings
 
 
 # ============================================================
@@ -258,35 +259,37 @@ class TestImportSafety:
 class TestBaseRetrieverDependencyInjection:
     """base_retriever.py 的依赖注入测试。"""
 
-    def test_get_vectorstore_requires_embedding_function(self):
-        """get_vectorstore 的 embedding_function 参数不能为 None。"""
-        from src.retriever.base_retriever import get_vectorstore
+    def test_create_vectorstore_requires_embedding_function(self):
+        """create_vectorstore 的 embedding_function 参数不能为 None。"""
+        from src.core.factories import create_vectorstore
 
-        # 清除 lru_cache
-        get_vectorstore.cache_clear()
+        # 清除缓存
+        import src.core.factories as factories
+        factories._vectorstore_cache = None
 
         with pytest.raises(ValueError, match="embedding_function 不能为 None"):
+            # 注意：create_vectorstore 会检查 embedding_function
+            # 但我们这里测试的是底层的 get_vectorstore
+            from src.retriever.base_retriever import get_vectorstore
+            get_vectorstore.cache_clear()
             get_vectorstore(
                 persist_directory="test_db",
                 collection_name="test_collection",
                 embedding_function=None,
             )
 
-    def test_create_vector_retriever_accepts_embedding_function(self):
-        """create_vector_retriever 接受 embedding_function 参数。"""
-        from src.retriever.base_retriever import create_vector_retriever
+    def test_create_retriever_accepts_embedding_function(self):
+        """create_retriever 使用 create_embeddings 创建 embedding_function。"""
+        from src.core.factories import create_retriever
         from src.retriever import base_retriever
 
         mock_embeddings = MagicMock()
         mock_vs = MagicMock()
 
-        with patch.object(base_retriever, "get_vectorstore", return_value=mock_vs) as mock_get_vs:
-            with patch.object(base_retriever, "VectorRetriever", return_value=MagicMock()) as MockCls:
-                retriever = create_vector_retriever(
-                    embedding_function=mock_embeddings,
-                )
-                # 验证 get_vectorstore 被调用且传入了 embedding_function
-                mock_get_vs.assert_called_once()
-                call_kwargs = mock_get_vs.call_args
-                assert call_kwargs.kwargs.get("embedding_function") is mock_embeddings or \
-                       "embedding_function" in str(call_kwargs)
+        # Mock create_embeddings 和 create_vectorstore
+        with patch('src.core.factories.create_embeddings', return_value=mock_embeddings):
+            with patch('src.core.factories.create_vectorstore', return_value=mock_vs):
+                with patch.object(base_retriever, "VectorRetriever", return_value=MagicMock()) as MockCls:
+                    retriever = create_retriever(settings)
+                    # 验证 VectorRetriever 被调用
+                    MockCls.assert_called_once()

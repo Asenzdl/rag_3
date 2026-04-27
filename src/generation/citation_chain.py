@@ -401,3 +401,9 @@ class CitationExtractor:
             True = URL 存在于检索结果中
         """
         return url in sources_set
+
+__all__ = [
+    "Citation",
+    "CitationExtractor",
+    "ValidatedCitation",
+]

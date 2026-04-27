@@ -238,3 +238,9 @@ def unbind_request_id() -> None:
         - FastAPI：每个请求的 after_request 钩子中
     """
     structlog.contextvars.clear_contextvars()
+
+__all__ = [
+    "bind_request_id",
+    "setup_logging",
+    "unbind_request_id",
+]

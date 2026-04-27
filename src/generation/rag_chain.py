@@ -537,3 +537,9 @@ class RAGChain:
                 "引用提取失败", error=str(e), answer_length=len(answer)
             )
             return []
+
+__all__ = [
+    "RAGChain",
+    "RAGResponse",
+    "format_docs",
+]

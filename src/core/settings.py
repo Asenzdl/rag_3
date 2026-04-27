@@ -67,6 +67,11 @@ class Settings(BaseSettings):
         default="qwen3-embedding:4b", description="Ollama Embedding 模型名"
     )
 
+    # ===== LLM 配置 =====
+    llm_provider: str = Field(
+        default="deepseek", description="LLM 提供商（deepseek/qwen）"
+    )
+
     # ===== 评估路径 =====
     eval_qa_path: str = Field(
         default="data/eval/qa_pairs.json", description="评估 QA 对路径"
@@ -100,3 +105,7 @@ class Settings(BaseSettings):
         if not v.strip():
             raise ValueError("API Key 不能为空或纯空白")
         return v
+
+__all__ = [
+    "Settings",
+]

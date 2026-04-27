@@ -24,6 +24,7 @@
 """
 
 
+
 class RAGSystemError(Exception):
     """RAG 系统公共异常基类。
 
@@ -80,3 +81,9 @@ class NonRetryableError(RAGSystemError):
     """
 
     pass
+
+__all__ = [
+    "NonRetryableError",
+    "RAGSystemError",
+    "RetryableError",
+]

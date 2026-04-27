@@ -1,7 +1,23 @@
 # 项目目录结构、模块职责与依赖关系、各模块技术详解
 
 基于 Phase 1-5 的完整设计，以下为生产级 LangGraph RAG 问答系统的架构文档。
-**仅作参考，以实际的最佳实践为准**。
+**仅作参考，以当前项目实际的情况和最佳实践为准**。
+
+---
+
+## ⚠️ 重要：模块独立性声明
+
+### 离线模块（不参与其他模块重构）
+
+以下两个模块是**独立的离线工具**，与其他模块的重构逻辑完全独立：
+
+- **`src/ingestion/`** — 数据入库管道（一次性运行，非实时 API）
+- **`src/evaluation/`** — 评估工具（离线测试，非生产 API）
+
+**AI 重构规则：**
+1. 当重构 `core/`、`generation/`、`retriever/`、`utils/` 等模块时，**不要探索或修改** ingestion 和 evaluation
+2. 这两个模块有自己独立的测试文件（`test_code_broken.py`、`test_dataset.py`、`test_metrics.py`、`test_retrieval_eval.py`）
+3. 除非用户明确要求优化这两个模块，否则跳过它们
 
 ---
 

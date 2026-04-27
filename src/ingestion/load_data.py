@@ -6,13 +6,15 @@
 from pathlib import Path
 from typing import List
 
-from src.ingestion import (
+# 注意：使用相对导入避免循环导入
+# from src.ingestion import ... 会导致循环，因为 __init__.py 会导入本模块
+from .loader import (
     load_directory,
     load_metadata_index,
     enrich_docs_with_index,
-    SmartDocumentSplitter,
-    ingest_to_chroma,
 )
+from .splitter import SmartDocumentSplitter
+from .vectorstore import ingest_to_chroma
 
 
 # ============================================================

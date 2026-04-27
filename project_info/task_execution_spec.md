@@ -26,7 +26,7 @@
 
 ### 输入
 
-- 当前 Task 的 outline 文件（`.project_outline/phase_X/task_X.X_*.md`）
+- 当前 Task 的 outline 文件（`.project/outline/phase_X/task_X.X_*.md`）
 - 查看当前 Task 明确需要支持的 TODO（来源于 `.project_todo.md`）
 - 必须严格按照 `project_info/task_doc_design_spec.md` 中的 **design.md 模板** 编写
 - 按标题判断需读取的前后置 Task（按需加载，用于前瞻性设计和指出过往设计的不足）
@@ -58,7 +58,7 @@
 
 ### 产出
 
-`.project_tasks/phase_X/task_X.X_design.md`
+`.project/tasks/phase_X/task_X.X_design.md`
 
 - **严禁包含**：完整实现代码、测试代码（这些在阶段2直接生成文件）
 - 此文档的核心目标：**让用户有能力独立编写代码（宇宙第一重要）**（"施工图纸"精度的骨架中文注释步骤，不要具体的代码！）

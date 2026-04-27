@@ -26,6 +26,7 @@ from langchain_core.vectorstores import VectorStore
 
 from src.core.exceptions import NonRetryableError
 from src.core.settings import Settings
+from src.retriever.protocols import RetrieverProtocol
 
 logger = structlog.get_logger(__name__)
 
@@ -129,7 +130,7 @@ def create_retriever(
     settings: Settings,
     search_type: str = "similarity",
     search_kwargs: Optional[Dict[str, Any]] = None,
-) -> "RetrieverProtocol":
+) -> RetrieverProtocol:
     """根据 settings 创建检索器实例（返回 RetrieverProtocol 协议类型）。
 
     为什么返回 RetrieverProtocol 而非 VectorRetriever：
@@ -199,9 +200,11 @@ def create_llm(provider: str, settings: Settings) -> BaseChatModel:
     elif provider == "qwen":
         llm = init_chat_model(
             model="qwen3.5-plus",
+            model_provider="dashscope",
             api_key=settings.qwen_api_key,
             base_url=settings.qwen_base_url,
-            model_provider="deepseek",
+            streaming=True,
+            temperature=0,
         )
     else:
         raise NonRetryableError(f"不支持的 LLM 提供商: {provider}")
@@ -230,9 +233,17 @@ def create_rag_chain(settings: Settings) -> Any:
     from src.generation.rag_chain import RAGChain
 
     retriever = create_retriever(settings)
-    llm = create_llm("deepseek", settings)
+    llm = create_llm(settings.llm_provider, settings)
     prompt = get_prompt(PromptVersion.V2, include_few_shot=True)
 
     chain = RAGChain(retriever=retriever, llm=llm, prompt=prompt)
     logger.info("RAGChain 创建完成")
     return chain
+
+__all__ = [
+    "create_embeddings",
+    "create_llm",
+    "create_rag_chain",
+    "create_retriever",
+    "create_vectorstore",
+]

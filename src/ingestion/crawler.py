@@ -1,4 +1,4 @@
-"""数据爬取脚本：爬取langchain文档并保存为markdown文件（禁止阅读）"""
+"""数据爬取脚本：爬取langchain文档并保存为markdown文件"""
 import json
 
 from langchain_community.document_loaders import SitemapLoader

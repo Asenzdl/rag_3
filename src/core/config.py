@@ -16,6 +16,7 @@
     persist_dir = settings.chroma_persist_directory
 """
 
+
 from dotenv import load_dotenv
 
 # override=True 确保 .env 文件中的值覆盖已存在的环境变量
@@ -29,3 +30,7 @@ from src.core.settings import Settings
 # 为什么在此实例化：load_dotenv 必须先于 Settings() 执行，
 # 而 config.py 是最先被导入的核心模块，天然保证顺序
 settings = Settings()
+
+__all__ = [
+    "settings",
+]

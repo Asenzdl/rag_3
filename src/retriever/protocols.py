@@ -46,3 +46,7 @@ class RetrieverProtocol(Protocol):
             UnsupportedSearchTypeError: 搜索类型不被支持
         """
         ...
+
+__all__ = [
+    "RetrieverProtocol",
+]

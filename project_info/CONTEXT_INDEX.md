@@ -2,14 +2,7 @@
 
 > ⚠️ 定位文件/类/函数/配置时，先查本文件再操作，禁止盲目搜索（见 CLAUDE.md「定位优先规则」）
 > 用途：AI 会话启动时一次性读取，提供精准定位信息，避免探索式搜索
-> 更新时机：Task 状态变更 / 模块结构变化 / 新增公共导出
-
----
-
-## ⚙️ 自动维护规则
-
-> **本文件由 AI 在 Task 执行完成时一次性自动更新，无需人工提醒：**
-> **更新原则**：增量修改，不重写全文。只有变更的部分才需更新。
+> 按需加载
 
 ---
 
@@ -23,74 +16,88 @@
 
 ## 📦 核心模块定位表
 
-> 一行定位：模块 → 文件 → 主类/函数 → 职责
+一行定位：文件 → 公共 API：C:类/F:函数 → 职责
+模块独立性声明：`src/ingestion`（数据预处理管道） 和 `src/evaluation`（检索评估工具） 是离线工具，通常无需关注，要访问时需发起人工申请，并附带理由
 
-| 模块 | 文件 | 主类 / 函数 | 职责 |
-|------|------|------------|------|
-| 配置管理 | `src/core/config.py` | `deepseek_llm` `qwen_llm` `ollama_embeddings` | LLM/Embedding 实例化（环境变量驱动）⚠️ Task 1.10 将重构为 Settings + 工厂模式 |
-| 异常体系 | `src/core/exceptions.py` | `RAGSystemError` `RetryableError` `NonRetryableError` | 分层异常基类 |
-| 数据采集 | `src/ingestion/crawler.py` | `crawl_and_save()` | HTML→Markdown 爬取 |
-| 文档加载 | `src/ingestion/loader.py` | `load_directory()` `load_markdown_with_frontmatter()` `load_metadata_index()` `enrich_docs_with_index()` | 多源文档加载 + 元数据整合 |
-| 文档切分 | `src/ingestion/splitter.py` | `SmartDocumentSplitter` | 标题感知分块 + metadata 传播 |
-| 向量入库 | `src/ingestion/vectorstore.py` | `ingest_to_chroma()` | Chroma 向量库写入 |
-| 入库流水线 | `src/ingestion/load_data.py` | `run_pipeline()` | 端到端入库编排 |
-| 基础检索 | `src/retriever/base_retriever.py` | `VectorRetriever` `create_vector_retriever()` `get_vectorstore()` | 向量检索封装（单例 + 日志 + 异常转换） |
-| Prompt 工程 | `src/generation/prompts.py` | `PromptVersion` `get_prompt()` `PROMPT_REGISTRY` | 模板版本管理（V1/V2）+ few-shot + 对话历史占位符 |
-| RAG 链 | `src/generation/rag_chain.py` | `RAGChain` `RAGResponse` `format_docs()` | 问答链组装 + 流式输出 |
-| 引用提取 | `src/generation/citation_chain.py` | `CitationExtractor` `Citation` `ValidatedCitation` | 引用标记提取 + URL 验证 |
-| 生成异常 | `src/generation/exceptions.py` | `GenerationError` `CitationExtractionError` `EmptyRetrievalError` `LLMCallError` | 生成模块异常体系 |
-| 检索评估 | `src/evaluation/retrieval_eval.py` | `RetrievalEvaluator` `ExactSourceMatcher` `SourceMatcher` `run_baseline_eval()` | HitRate/MRR/NDCG 评估 |
-| 评估指标 | `src/evaluation/metrics.py` | `hit_rate_at_k()` `mrr_at_k()` `ndcg_at_k()` | 底层指标计算 |
-| 评估数据集 | `src/evaluation/dataset.py` | `EvalSample` `load_eval_dataset()` | QA pairs 加载 + 结构化日志 |
-| 结构化日志 | `src/utils/logger.py` | `setup_logging()` `bind_request_id()` `unbind_request_id()` | structlog 配置 + 请求 ID 绑定 |
-| 重试机制 | `src/utils/retry.py` | `create_llm_retry_decorator()` `with_retry()` | tenacity 重试 + 指数退避 |
-| CLI 入口 | `src/app.py` | `main()` `cli_loop()` `ChatSession` | REPL 交互 + RAGChain 调用 |
-| 启动脚本 | `src/run.py` | `main()` | 标准入口守卫（`python src/run.py`） |
+### `src/`
 
-### 关键配置变量（`src/core/config.py`）
+> CLI 应用入口 + 启动脚本
 
-| 变量 | 环境变量 | 用途 |
-|------|---------|------|
-| `DEEPSEEK_API_KEY` | `DEEPSEEK_API_KEY` | DeepSeek LLM API Key |
-| `DEEPSEEK_BASE_URL` | `DEEPSEEK_BASE_URL` | DeepSeek API Base URL |
-| `QWEN_API_KEY` | `QWEN_API_KEY` | Qwen LLM API Key |
-| `QWEN_BASE_URL` | `QWEN_BASE_URL` | Qwen API Base URL |
-| `TAVILY_API_KEY` | `TAVILY_API_KEY` | Tavily 搜索 API Key（Phase 4） |
+| 文件 | 类型 | 公共 API | 职责概要 |
+| :--- | :--- | :--- | :--- |
+| `src/app.py` | 应用入口 | — | CLI 交互入口：REPL 问答 + 会话状态管理。 |
+| `src/run.py` | 启动脚本 | `F:main` | 程序启动入口。 |
 
-> ⚠️ Task 1.10 完成后，配置变量将迁移到 `src/core/settings.py` 的 `Settings` 类
+### `src/core/`
 
----
+> core 包 — 核心基础设施：配置管理、工厂函数、异常体系。
+
+| 文件 | 公共 API | 职责概要 |
+| :--- | :--- | :--- |
+| `src/core/config.py` | `F:settings` | 配置入口门面 — 加载环境变量 + 导出 Settings 单例。 |
+| `src/core/exceptions.py` | `C:NonRetryableError` `C:RAGSystemError` `C:RetryableError` | RAG 系统统一异常体系。 |
+| `src/core/factories.py` | `F:create_embeddings` `F:create_llm` `F:create_rag_chain` `F:create_retriever` `F:create_vectorstore` | 工厂函数模块 — 配置驱动的对象创建。 |
+| `src/core/settings.py` | `C:Settings` | 12-Factor App 配置管理 — Pydantic BaseSettings 实现。 |
+
+### `src/generation/`
+
+> generation 包 — RAG Chain 生成层核心 API。
+
+| 文件 | 公共 API | 职责概要 |
+| :--- | :--- | :--- |
+| `src/generation/citation_chain.py` | `C:Citation` `C:CitationExtractor` `C:ValidatedCitation` | 引用提取与验证模块。 |
+| `src/generation/exceptions.py` | `C:CitationExtractionError` `C:EmptyRetrievalError` `C:GenerationError` `C:LLMCallError` | 生成模块异常定义。 |
+| `src/generation/prompts.py` | `C:PromptVersion` `F:get_prompt` | Prompt 模板定义与版本管理模块。 |
+| `src/generation/rag_chain.py` | `C:RAGChain` `C:RAGResponse` `F:format_docs` | RAG 问答链模块：LCEL 组合 + 空检索拦截 + 流式支持。 |
+
+### `src/retriever/`
+
+> retriever 包 — 检索层核心 API。
+
+| 文件 | 公共 API | 职责概要 |
+| :--- | :--- | :--- |
+| `src/retriever/base_retriever.py` | `C:RetrievalError` `C:UnsupportedSearchTypeError` `C:VectorRetriever` | 基础向量检索器：封装 Chroma 向量检索器。 |
+| `src/retriever/protocols.py` | `C:RetrieverProtocol` | 检索器协议定义 — 结构子类型（Structural Subtyping）。 |
+
+### `src/utils/`
+
+> utils 包 — 基础设施工具模块。
+
+| 文件 | 公共 API | 职责概要 |
+| :--- | :--- | :--- |
+| `src/utils/logger.py` | `F:bind_request_id` `F:setup_logging` `F:unbind_request_id` | 结构化日志配置模块。 |
+| `src/utils/retry.py` | `C:NonRetryableError` `C:RetryableError` `F:create_llm_retry_decorator` `F:with_retry` | LLM 调用重试机制。 |
+
 
 ## 🔗 路径速查
 
-### Phase 目录映射（不可推导，必须查表）
+### Phase 目录映射
 
-| Phase | outline 目录 | tasks 目录 |
-|-------|-------------|-----------|
-| 1 | `phase_1_reliable_base` | `phase_1` |
-| 2 | `phase_2_langgraph` | `phase_2` |
-| 3 | `phase_3_retrieval_enhance` | `phase_3` |
-| 4 | `phase_4_tools_cache_async` | `phase_4` |
-| 5 | `phase_5_serve` | `phase_5` |
+| Phase | outline 目录 |
+|-------|-------------|
+| 1 | `phase_1_reliable_base` | 
+| 2 | `phase_2_langgraph` | 
+| 3 | `phase_3_retrieval_enhance` |
+| 4 | `phase_4_tools_cache_async` | 
+| 5 | `phase_5_serve` | 
 
-### 文档路径构造规则
+### 文档路径模式
 
-将上表目录名代入 `DIR` 占位符：
+> 将 outline 目录名代入 `DIR`
 
 | 类型 | 路径模式 |
 |------|---------|
-| Phase 总目标 | `.project_outline/DIR/phase_X_goal.md` |
-| Task 需求 | `.project_outline/DIR/task_X.X_*.md` |
-| 架构设计 | `.project_tasks/DIR/task_X.X_design.md` |
+| Phase 目标 | `.project/outline/DIR/phase_X_goal.md` |
+| Task 需求 | `.project/outline/DIR/task_X.X_*.md` |
+| 架构设计 | `.project/tasks/phase_X/task_X.X_design.md` |
 | 技术文档 | `docs/task_X.X/*.md` |
 
-### 关键数据文件
+### 关键文件
 
 | 文件 | 路径 |
 |------|------|
 | QA 评估对 | `data/eval/qa_pairs.json` |
-| 基线检索报告 | `data/eval/baseline_retrieval_report.md` |
-| 规范模板 | `project_info/task_doc_design_spec.md` / `project_info/tech_doc_design_spec.md` / `project_info/task_execution_spec.md` |
+| 规范模板 | `project_info/{task,tech}_doc_design_spec.md`, `task_execution_spec.md` |
 
 ---
 

@@ -17,6 +17,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+
 @dataclass
 class EvalSample:
     """单条评估样本。

@@ -212,3 +212,9 @@ def create_vector_retriever(
         search_type=search_type,
         search_kwargs=kwargs,
     )
+
+__all__ = [
+    "RetrievalError",
+    "UnsupportedSearchTypeError",
+    "VectorRetriever",
+]
