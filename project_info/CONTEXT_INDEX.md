@@ -1,16 +1,8 @@
 # 项目上下文索引（AI 专用）
 
-> ⚠️ 定位文件/类/函数/配置时，先查本文件再操作，禁止盲目搜索（见 CLAUDE.md「定位优先规则」）
+> ⚠️ 定位 文件/类/函数/配置时，先查本文件再操作，禁止盲目搜索（见 CLAUDE.md「定位优先规则」）
 > 用途：AI 会话启动时一次性读取，提供精准定位信息，避免探索式搜索
-> 按需加载
-
----
-
-## 📍 当前 Task
-
-- **Task 1.10 状态** → ✅ 完成（配置管理、工厂模式与检索器协议抽象）
-- **Phase 1 Task 1.0~1.10 已完成**，Task 1.11 待执行
-- **Phase 2 待开始**
+> **按需加载**
 
 ---
 
@@ -69,7 +61,7 @@
 | `src/utils/retry.py` | `C:NonRetryableError` `C:RetryableError` `F:create_llm_retry_decorator` `F:with_retry` | LLM 调用重试机制。 |
 
 
-## 🔗 路径速查
+## 🔗 路径映射
 
 ### Phase 目录映射
 
@@ -83,65 +75,89 @@
 
 ### 文档路径模式
 
-> 将 outline 目录名代入 `DIR`
-
 | 类型 | 路径模式 |
 |------|---------|
-| Phase 目标 | `.project/outline/DIR/phase_X_goal.md` |
-| Task 需求 | `.project/outline/DIR/task_X.X_*.md` |
+| Phase 目标 | `.project/outline/phase_X_*/phase_X_goal.md` |
+| Task 文档 | `.project/outline/phase_X_*/task_X.X_*.md` |
 | 架构设计 | `.project/tasks/phase_X/task_X.X_design.md` |
-| 技术文档 | `docs/task_X.X/*.md` |
+| 技术文档 | `.project/docs/task_X.X/*.md` |
 
-### 关键文件
+### 数据文件
 
 | 文件 | 路径 |
 |------|------|
 | QA 评估对 | `data/eval/qa_pairs.json` |
-| 规范模板 | `project_info/{task,tech}_doc_design_spec.md`, `task_execution_spec.md` |
 
 ---
 
-## 📋 Task 进度
+## 📋 Task 目标索引
+
+> AI可根据目标去判断某个 Task 是否与当前 Task 可能产生前瞻性设计，再具体去阅读其 Task 文档
+> 按需阅读Task文档，`.project/outline/phase_X_*/task_X.X_*.md`
 
 ### Phase 1: 可靠基座 + 评估驱动
 
-| Task | 状态 | 产出 |
-|------|------|------|
-| 1.0 知识库数据集构建 | ✅ 完成 | crawler.py, 原始 Markdown |
-| 1.1 数据管道 | ✅ 完成 | loader.py, splitter.py, vectorstore.py |
-| 1.2 评估数据集 | ✅ 完成 | qa_pairs.json, dataset.py |
-| 1.3 基础检索器 | ✅ 完成 | base_retriever.py |
-| 1.4 检索评估指标 | ✅ 完成 | metrics.py, retrieval_eval.py |
-| 1.5 Prompt 模板 | ✅ 完成 | prompts.py（V1/V2） |
-| 1.6 基础 RAG Chain | ✅ 完成 | rag_chain.py, citation_chain.py |
-| 1.7 重试与日志 | ✅ 完成 | retry.py, logger.py |
-| 1.8 CLI 与 E2E | ✅ 完成 | app.py |
-| 1.9 Prompt 接口修复与代码质量改善 | ✅ 完成 | prompts.py(修复chat_history位置), citation_chain.py(异常拆分), dataset.py(logger替换) |
-| 1.10 配置管理、工厂模式与检索器协议抽象 | ⏳ 待执行 | — |
-| 1.11 RAGChain 方法拆分与代码质量改善 | ⏳ 待执行 | — |
+| Task | 目标 |
+|------|------|
+| 1.0 | LangChain 知识库构建（爬虫 + 文档分离） |
+| 1.1 | 数据管道：加载 → 分块 → 向量化 |
+| 1.2 | 评估数据集构建（QA 问答对） |
+| 1.3 | 基础向量检索器封装（Chroma + MMR） |
+| 1.4 | 检索评估指标体系（Hit Rate, MRR） |
+| 1.5 | Prompt 模板版本管理（V1/V2） |
+| 1.6 | 基础 RAG Chain（LCEL + 空检索拦截 + 引用生成） |
+| 1.7 | LLM 重试机制 + 结构化日志 |
+| 1.8 | CLI 交互 + E2E 测试 |
+| 1.9 | Prompt 接口修复 + 代码质量 |
+| 1.10 | 12-Factor 配置 + 工厂模式 + 协议抽象 |
+| 1.11 | RAGChain 重构 + 代码质量 |
 
-### Phase 2: LangGraph 骨架 ⏳
+### Phase 2: LangGraph 骨架
 
-> 未开始。进入时读取对应 `task_X.X_*.md` 获取详细需求。
+| Task | 目标 |
+|------|------|
+| 2.1 | LangGraph 状态定义（StateGraph + TypedDict） |
+| 2.2 | 核心节点实现（检索 → 生成 → 引用验证） |
+| 2.3 | 条件边与图构建（Conditional Edge） |
+| 2.4 | 检查点持久化（SQLite Checkpointer） |
+| 2.5 | 对话记忆（短期记忆 + 摘要记忆） |
+| 2.6 | 文档评估与自适应路由（自信度路由） |
+| 2.7 | CLI 升级（流式输出 + 会话管理） |
 
-| Task | Outline 文件 |
-|------|-------------|
-| 2.1 状态定义 | `task_2.1_state.md` |
-| 2.2 核心节点 | `task_2.2_nodes.md` |
-| 2.3 条件边与图构建 | `task_2.3_builder.md` |
-| 2.4 检查点持久化 | `task_2.4_checkpointer.md` |
-| 2.5 对话记忆 | `task_2.5_memory.md` |
-| 2.6 文档评估与自适应路由 | `task_2.6_adaptive_route.md` |
-| 2.7 CLI 升级 | `task_2.7_cli_upgrade.md` |
+### Phase 3: 评估驱动检索增强
 
-### Phase 3~5 ⏳
+| Task | 目标 |
+|------|------|
+| 3.1 | 多查询检索器（MultiQuery，提升模糊问题召回率） |
+| 3.2 | HyDE 假设文档嵌入 |
+| 3.3 | 集成检索（Ensemble：多检索器合并） |
+| 3.4 | 重排序器（Reranker：Cross-Encoder 精排） |
+| 3.5 | RAGAS 评估框架集成 |
+| 3.6 | A/B 对比实验（基线 vs 增强策略） |
+| 3.7 | 检索策略固化（选择最优方案） |
 
-> 未开始。进入时读取对应 `task_X.X_*.md` 获取详细需求。
+### Phase 4: 工具 + 缓存 + 异步
 
-| Phase | 主题 | Task 清单 |
-|-------|------|----------|
-| 3 评估驱动检索增强 | MultiQuery / HyDE / Ensemble / Reranker / RAGAS / A-B对比 / 策略固化 | 3.1~3.7 |
-| 4 工具+缓存+异步 | Tavily搜索 / MCP服务 / 精确缓存 / 语义缓存 / 异步 / 监控 / 集成测试 | 4.1~4.7 |
-| 5 服务化与容器化 | FastAPI / SSE流式 / Gradio UI / Docker / 配置安全 / 部署文档 / 交付归档 | 5.1~5.7 |
+| Task | 目标 |
+|------|------|
+| 4.1 | Tavily 搜索工具集成 |
+| 4.2 | MCP 服务集成（Model Context Protocol） |
+| 4.3 | LLM 精确缓存（结果级缓存） |
+| 4.4 | 语义缓存（Embedding 相似度缓存） |
+| 4.5 | 异步支持（Async RAG Chain） |
+| 4.6 | 监控与指标（Prometheus + Grafana） |
+| 4.7 | 集成测试（端到端验证） |
+
+### Phase 5: 服务化与容器化
+
+| Task | 目标 |
+|------|------|
+| 5.1 | FastAPI 服务封装 |
+| 5.2 | SSE 流式输出 |
+| 5.3 | Gradio UI 交互界面 |
+| 5.4 | Docker 容器化部署 |
+| 5.5 | 配置安全（环境变量 + 密钥管理） |
+| 5.6 | 部署文档编写 |
+| 5.7 | 交付归档 |
 
 ---

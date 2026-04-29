@@ -28,7 +28,7 @@
 
 ## 一、技术文档模板（5+3 结构）
 
-> 路径：`docs/task_x.x/[topic_name].md`
+> 路径：`.project/docs/task_x.x/[topic_name].md`
 > 定位：围绕本项目架构决策的深度教学文档，用渐进式叙事讲透"为什么"和"什么时候会翻车"
 
 ~~~markdown
