@@ -2,23 +2,24 @@
 
 > ⚠️ 定位 文件/类/函数/配置时，先查本文件再操作，禁止盲目搜索（见 CLAUDE.md「定位优先规则」）
 > 用途：AI 会话启动时一次性读取，提供精准定位信息，避免探索式搜索
+> 单会话只会完成一个 Task，且会严格更新此文件，请信任此文件的定位信息
 > **按需加载**
 
 ---
 
 ## 📦 核心模块定位表
 
-一行定位：文件 → 公共 API：C:类/F:函数 → 职责
+一行定位：文件 → 公共 API：C:类/F:函数/R:Re-export → 职责
 模块独立性声明：`src/ingestion`（数据预处理管道） 和 `src/evaluation`（检索评估工具） 是离线工具，通常无需关注，要访问时需发起人工申请，并附带理由
 
 ### `src/`
 
 > CLI 应用入口 + 启动脚本
 
-| 文件 | 类型 | 公共 API | 职责概要 |
-| :--- | :--- | :--- | :--- |
-| `src/app.py` | 应用入口 | — | CLI 交互入口：REPL 问答 + 会话状态管理。 |
-| `src/run.py` | 启动脚本 | `F:main` | 程序启动入口。 |
+| 文件 | 公共 API | 职责概要 |
+| :--- |:--- | :--- |
+| `src/app.py` | — | CLI 交互入口：应用入口 + REPL 问答 + 会话状态管理。 |
+| `src/run.py` | `F:main` | 启动脚本：程序启动入口。 |
 
 ### `src/core/`
 
@@ -58,7 +59,7 @@
 | 文件 | 公共 API | 职责概要 |
 | :--- | :--- | :--- |
 | `src/utils/logger.py` | `F:bind_request_id` `F:setup_logging` `F:unbind_request_id` | 结构化日志配置模块。 |
-| `src/utils/retry.py` | `C:NonRetryableError` `C:RetryableError` `F:create_llm_retry_decorator` `F:with_retry` | LLM 调用重试机制。 |
+| `src/utils/retry.py` | `R:NonRetryableError` `R:RetryableError` `F:create_llm_retry_decorator` `F:with_retry` | LLM 调用重试机制。 |
 
 
 ## 🔗 路径映射
