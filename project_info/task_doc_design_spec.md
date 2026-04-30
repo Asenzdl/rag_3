@@ -13,7 +13,7 @@
 ~~~markdown
 # Task X.X [任务名称] - 架构设计
 
-> **原始需求**：`.project_outline/phase_X/task_X.X_*.md`
+> **原始需求**：`.project/outline/phase_X_*/task_X.X_*.md`
 > **涉及文件**：`src/xxx/yyy.py`、`tests/test_yyy.py`
 
 ---
