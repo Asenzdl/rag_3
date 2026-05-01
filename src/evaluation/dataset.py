@@ -39,12 +39,13 @@ class EvalSample:
 
 
 def load_eval_dataset(
-    json_path: str = "data/eval/qa_pairs.json",
+    json_path: Optional[str] = None,
 ) -> List[EvalSample]:
     """加载评估数据集，返回标准化的 EvalSample 列表。
 
     Args:
-        json_path: QA pairs JSON 文件路径。
+        json_path: QA pairs JSON 文件路径。默认为 None，
+            此时从 settings.eval_qa_path 读取（延迟导入 config 模块）。
 
     Returns:
         EvalSample 列表。
@@ -53,6 +54,10 @@ def load_eval_dataset(
         FileNotFoundError: JSON 文件不存在时抛出。
         KeyError: JSON 条目缺少必要字段时抛出。
     """
+    if json_path is None:
+        from src.core.config import settings
+        json_path = settings.eval_qa_path
+
     path = Path(json_path)
     if not path.exists():
         raise FileNotFoundError(f"评估数据集文件不存在: {json_path}")

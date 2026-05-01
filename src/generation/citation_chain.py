@@ -26,6 +26,7 @@
 """
 
 import re
+import time
 from dataclasses import dataclass
 from typing import ClassVar, List, Optional
 
@@ -176,17 +177,12 @@ class CitationExtractor:
             return []
 
         # 第2步：根据策略选择提取方法
+        start = time.perf_counter()
         try:
             if self._use_structured_output:
                 # 先尝试结构化输出，失败回退正则
                 try:
                     citations = self._extract_structured(answer, sources)
-                    logger.info(
-                        "引用提取完成（结构化输出策略）",
-                        citation_count=len(citations),
-                        valid_count=sum(1 for c in citations if c.is_valid),
-                    )
-                    return citations
                 except NotImplementedError:
                     # 模型不支持 Function Calling，回退到正则策略
                     logger.warning("模型不支持 Function Calling，回退到正则策略")
@@ -200,13 +196,24 @@ class CitationExtractor:
                         error=str(e),
                         error_type=type(e).__name__,
                     )
+                else:
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    logger.info(
+                        "引用提取完成（结构化输出策略）",
+                        citation_count=len(citations),
+                        valid_count=sum(1 for c in citations if c.is_valid),
+                        latency_ms=round(latency_ms, 1),
+                    )
+                    return citations
 
             # 正则策略（默认或回退）
             citations = self._extract_regex(answer, sources)
+            latency_ms = (time.perf_counter() - start) * 1000
             logger.info(
                 "引用提取完成（正则策略）",
                 citation_count=len(citations),
                 valid_count=sum(1 for c in citations if c.is_valid),
+                latency_ms=round(latency_ms, 1),
             )
             return citations
 

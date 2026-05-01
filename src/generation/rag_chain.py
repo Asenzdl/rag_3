@@ -263,90 +263,83 @@ class RAGChain:
             raise_on_empty=raise_on_empty,
         )
 
-    def invoke(self, question: str) -> RAGResponse:
-        """同步调用完整 RAG 管道。
+    # ============================================================
+    # 私有步骤方法
+    # ============================================================
 
-        完整流程：
-            检索 → 空检索拦截 → 格式化文档 → LCEL 生成 → 引用提取 → 返回 RAGResponse
+    def _retrieve_step(self, question: str) -> List[Document]:
+        """共享检索步骤 — 被 invoke/retrieve/stream 复用。
+
+        为什么是私有方法而非独立函数（设计决策）：
+            1. 步骤函数仅在 RAGChain 内部使用，Phase 2 LangGraph 节点直接调用底层组件
+            2. 私有方法保持类的内聚性——步骤访问 self._retriever 实例属性
+            3. format_docs() 是独立函数，因为 Phase 2 生成节点需跨模块复用
+
+        为什么保留 RetrievalError 而不包装（反直觉辩护）：
+            三个调用方对检索异常的处理策略不同：
+            invoke() → 包装为 GenerationError
+            retrieve() → 包装为 GenerationError
+            stream() → yield 错误提示文本
+            步骤方法若内部包装，调用方无法做差异化处理。
+
+        注意点：此方法不包含空检索拦截逻辑——空检索是编排层决策（是否 raise_on_empty），
+        不是检索步骤的职责。
 
         Args:
-            question: 用户问题（中文）
+            question: 用户问题
 
         Returns:
-            RAGResponse 包含回答、来源、引用验证结果
+            检索到的文档列表
 
         Raises:
-            LLMCallError: LLM 调用失败时（包装底层 API 异常）
-            EmptyRetrievalError: raise_on_empty=True 且检索为空时
+            RetrievalError: 检索过程中发生异常（保留原始语义，由调用方决定包装方式）
         """
-        total_start = time.perf_counter()
-
-        # ===== 第1步：检索 =====
-        # 为什么这样做：检索是 RAG 的第一步，获取与问题相关的文档片段
-        retrieve_start = time.perf_counter()
-        try:
-            docs = self._retriever.invoke(question)
-        except RetrievalError as e:
-            # 检索模块的异常包装为 GenerationError 向上传播
-            # 为什么不直接传播 RetrievalError：
-            #   对上层调用方而言，检索失败也是"生成失败"的一种，
-            #   统一用 GenerationError 基类捕获即可。
-            raise GenerationError(
-                f"检索阶段失败，问题: '{question[:50]}...': {e}"
-            ) from e
-        retrieval_ms = (time.perf_counter() - retrieve_start) * 1000
+        start = time.perf_counter()
+        docs = self._retriever.invoke(question)
+        latency_ms = (time.perf_counter() - start) * 1000
 
         logger.info(
             "检索完成",
             question=question[:50],
             doc_count=len(docs),
-            latency_ms=round(retrieval_ms, 1),
+            latency_ms=round(latency_ms, 1),
         )
+        return docs
 
-        # ===== 第2步：空检索拦截 =====
-        # 为什么这样做：检索为空时调用 LLM 没有意义（无上下文的 LLM 会产生幻觉），
-        #   直接返回预设回复既节省 API 开销，又保证回答质量
-        if not docs:
-            logger.warning(
-                "检索返回空结果",
-                question=question[:50],
-                raise_on_empty=self._raise_on_empty,
-            )
-            if self._raise_on_empty:
-                raise EmptyRetrievalError(
-                    f"检索未返回任何文档，问题: '{question[:50]}'"
-                )
-            # 即使 raise_on_empty=False 也记录 warning，便于监控检索质量
-            return RAGResponse(
-                answer=self._empty_retrieval_response,
-                sources=[],
-                citations=[],
-                retrieval_count=0,
-            )
+    def _generate_step(self, context: str, question: str) -> str:
+        """LLM 生成步骤 — 带重试调用 + token 追踪 + 异常包装。
 
-        # ===== 第3步：格式化文档 =====
-        # 为什么这样做：LCEL 生成链需要 {context} 和 {question} 两个变量，
-        #   format_docs 将 List[Document] 转为带编号的上下文字符串
-        context = format_docs(docs)
-        sources = [doc.metadata.get("source", "") for doc in docs]
+        为什么返回 str 而非 tuple[str, dict]（功能取舍）：
+            当前 token usage 仅用于日志，步骤方法内部记录即可。
+            若 Task 4.6 需暴露 token 数据给 Prometheus，届时再调整返回类型。
 
-        # ===== 第4步：LLM 生成（改造：带重试 + token 追踪） ======
-        # 为什么改造：Task 1.7 需要自动重试和 token 使用量追踪
-        # 改造方式：使用 self._retryable_invoke（带 tenacity 重试的 prompt|llm 链），
-        #   返回 AIMessage，从中提取 token 使用量，再取 content 作为 answer
-        generation_start = time.perf_counter()
+        为什么步骤内包装为 LLMCallError 而非保留原始异常（设计决策）：
+            LLMCallError 的 is_retryable 属性需要重试耗尽的上下文来判断，
+            编排层不具备此上下文。若由编排层包装，需理解每种 SDK 异常类型，
+            切换 LLM 提供商时需同时修改编排层。
+
+        为什么 stream() 不复用此方法（替代方案排除）：
+            stream() 使用 _generation_chain.stream() 逐 token yield，
+            语义完全不同（yield vs return），强行共享需引入回调或生成器协议，
+            复杂度远超收益。
+
+        Args:
+            context: 格式化后的文档上下文字符串
+            question: 用户问题
+
+        Returns:
+            LLM 生成的回答文本
+
+        Raises:
+            LLMCallError: LLM 调用失败时（重试耗尽后包装为 is_retryable=False）
+        """
+        start = time.perf_counter()
         try:
-            # 步骤 4a：带重试的 LLM 调用，返回 AIMessage
-            # 为什么不用 self._generation_chain.invoke：
-            #   1. 需要 AIMessage 以提取 token 使用量
-            #   2. 需要在 LLM 层面加重试（不含 StrOutputParser）
-            #   3. 重试逻辑由 tenacity 管理，异常时自动重试
             ai_message = self._retryable_invoke(
                 {"context": context, "question": question}
             )
         except Exception as e:
-            # 步骤 4b：异常处理（重试耗尽后到达此处）
-            latency_ms = (time.perf_counter() - generation_start) * 1000
+            latency_ms = (time.perf_counter() - start) * 1000
             logger.error(
                 "LLM 调用失败（重试耗尽）",
                 question=question[:50],
@@ -357,48 +350,126 @@ class RAGChain:
             raise LLMCallError(
                 f"LLM 调用失败，问题: '{question[:50]}...': {e}",
                 original_error=e,
-                is_retryable=False,  # 重试耗尽后不再可重试
+                is_retryable=False,
             ) from e
 
-        generation_ms = (time.perf_counter() - generation_start) * 1000
+        latency_ms = (time.perf_counter() - start) * 1000
 
-        # 步骤 4c：提取 token 使用量
-        # AIMessage 的 usage_metadata 是 LangChain 统一格式：
-        #   {"input_tokens": 123, "output_tokens": 456, "total_tokens": 579}
-        # response_metadata 是原始 SDK 返回的元数据（格式因提供商而异）
+        # 提取 token 使用量（LangChain 统一格式）
         usage = getattr(ai_message, "usage_metadata", None) or {}
         input_tokens = usage.get("input_tokens", 0)
         output_tokens = usage.get("output_tokens", 0)
         total_tokens = usage.get("total_tokens", 0)
 
-        # 步骤 4d：提取回答文本
-        # ai_message.content 等价于 StrOutputParser().invoke(ai_message)
         answer = ai_message.content
 
         logger.info(
             "生成完成",
             question=question[:50],
             answer_length=len(answer),
-            latency_ms=round(generation_ms, 1),
+            latency_ms=round(latency_ms, 1),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
         )
+        return answer
 
-        # ===== 第5步：引用提取 =====
-        # 为什么这样做：验证 LLM 生成的引用是否真实存在于检索结果中
-        citations: List[ValidatedCitation] = []
+    def _extract_citations_step(
+        self, answer: str, sources: List[str]
+    ) -> List[ValidatedCitation]:
+        """引用提取步骤 — 非致命异常降级为空列表。
+
+        为什么返回空列表而非抛异常（反直觉辩护）：
+            引用提取是增强功能，回答文本本身仍然有效。
+            调用方（CLI/FastAPI）更关心回答内容，引用缺失不应导致整个请求失败。
+
+        Args:
+            answer: LLM 生成的回答文本
+            sources: 检索命中的文档 source URL 列表
+
+        Returns:
+            验证后的引用列表。提取失败返回空列表。
+        """
+        start = time.perf_counter()
         try:
             citations = self._citation_extractor.extract(answer, sources)
         except CitationExtractionError as e:
-            # 引用提取失败不中断主流程，返回 citations=[] 的 RAGResponse
             logger.warning(
                 "引用提取失败，跳过引用验证",
                 error=str(e),
+                question=answer[:50],
+            )
+            return []
+
+        latency_ms = (time.perf_counter() - start) * 1000
+        logger.info(
+            "引用提取完成",
+            citation_count=len(citations),
+            valid_count=sum(1 for c in citations if c.is_valid),
+            latency_ms=round(latency_ms, 1),
+        )
+        return citations
+
+    # ============================================================
+    # 公共编排方法
+    # ============================================================
+
+    def invoke(self, question: str) -> RAGResponse:
+        """同步调用完整 RAG 管道（编排方法）。
+
+        编排流程：检索 → 空检索拦截 → 格式化文档 → LLM 生成 → 引用提取 → 封装返回。
+        每个步骤的实现细节封装在私有方法中，invoke() 仅负责调用和组装结果。
+
+        Args:
+            question: 用户问题（中文）
+
+        Returns:
+            RAGResponse 包含回答、来源、引用验证结果
+
+        Raises:
+            LLMCallError: LLM 调用失败时（包装底层 API 异常）
+            EmptyRetrievalError: raise_on_empty=True 且检索为空时
+            GenerationError: 检索阶段失败时
+        """
+        total_start = time.perf_counter()
+
+        # 第1步：检索 — 共享步骤方法，编排层统一包装异常
+        try:
+            docs = self._retrieve_step(question)
+        except RetrievalError as e:
+            raise GenerationError(
+                f"检索阶段失败，问题: '{question[:50]}...': {e}"
+            ) from e
+
+        # 第2步：空检索拦截 — 编排层决策（是否 raise_on_empty）
+        if not docs:
+            logger.warning(
+                "检索返回空结果",
                 question=question[:50],
+                raise_on_empty=self._raise_on_empty,
+            )
+            if self._raise_on_empty:
+                raise EmptyRetrievalError(
+                    f"检索未返回任何文档，问题: '{question[:50]}'"
+                )
+            return RAGResponse(
+                answer=self._empty_retrieval_response,
+                sources=[],
+                citations=[],
+                retrieval_count=0,
             )
 
-        # ===== 第6步：封装返回 =====
+        # 第3步：格式化文档 + 提取来源
+        context = format_docs(docs)
+        sources = [doc.metadata.get("source", "") for doc in docs]
+
+        # 第4步：LLM 生成 — _generate_step 内部包装 LLMCallError
+        answer = self._generate_step(context, question)
+
+        # 第5步：引用提取 — _extract_citations_step 内部降级为空列表
+        citations = self._extract_citations_step(answer, sources)
+
+        # 第6步：封装返回
         total_ms = (time.perf_counter() - total_start) * 1000
         logger.info(
             "RAG 管道完成",
@@ -428,21 +499,26 @@ class RAGChain:
             流式场景下文本是逐 token 产生的，无法提前提取引用。
             调用方可在流结束后调用 self.extract_citations() 获取引用。
 
+        为什么复用 _retrieve_step 但生成步骤独立实现：
+            _retrieve_step 无副作用（纯查询），可安全复用。
+            生成步骤语义不同（yield vs return），强行共享需引入回调，
+            复杂度远超收益。
+
         Args:
             question: 用户问题
 
         Yields:
             str: 逐 token 的文本片段
         """
-        # ===== 第1步：检索 =====
+        # 第1步：检索 — 复用共享步骤方法
         try:
-            docs = self._retriever.invoke(question)
+            docs = self._retrieve_step(question)
         except RetrievalError as e:
             logger.error("流式检索失败", question=question[:50], error=str(e))
             yield "[检索失败，请稍后重试]"
             return
 
-        # ===== 第2步：空检索拦截 =====
+        # 第2步：空检索拦截
         if not docs:
             logger.warning(
                 "流式检索返回空结果", question=question[:50]
@@ -450,12 +526,10 @@ class RAGChain:
             yield self._empty_retrieval_response
             return
 
-        # ===== 第3步：格式化文档 =====
+        # 第3步：格式化文档
         context = format_docs(docs)
 
-        # ===== 第4步：流式生成 =====
-        # 为什么这样做：self._generation_chain.stream() 返回 Iterator[str]，
-        #   StrOutputParser 在流式模式下逐 token 输出
+        # 第4步：流式生成 — 独立实现（_generation_chain.stream 逐 token yield）
         logger.info("开始流式生成", question=question[:50])
         try:
             for chunk in self._generation_chain.stream(
@@ -473,16 +547,20 @@ class RAGChain:
             yield "\n\n[生成失败，请重试]"
 
     async def ainvoke(self, question: str) -> RAGResponse:
-        """异步调用完整 RAG 管道（为 FastAPI 准备）。
+        """异步调用完整 RAG 管道（占位，Task 4.5 应独立评估）。
 
-        TODO(Task 4.5): 实现完整异步链路，当前先用同步 invoke 的结果包装
-        为什么预留此方法：
-            FastAPI 的 async def 路由需要异步调用链，
-            当前用同步包装满足接口兼容性，Task 4.5 再优化为真异步。
+        为什么用 NotImplementedError 而非假异步（反直觉辩护）：
+            当前 ainvoke() 内部调用同步 invoke()，这是"假异步"——
+            async def 中调用同步阻塞函数会阻塞事件循环，导致所有协程挂起。
+            这比 NotImplementedError 更危险，因为调用方无法从类型签名
+            判断行为是否真正异步。NotImplementedError 诚实告知"此功能未实现"，
+            避免假异步的隐蔽风险。
+
+        当前为占位，后续 Task 4.5 应独立评估异步链路实现。
         """
-        # 当前实现：直接调用同步 invoke
-        # Task 4.5 优化为：await self._generation_chain.ainvoke(...)
-        return self.invoke(question)
+        raise NotImplementedError(
+            "ainvoke 尚未实现。当前为占位，Task 4.5 应独立评估异步链路实现。"
+        )
 
     def retrieve(self, question: str) -> List[Document]:
         """仅执行检索步骤，返回文档列表。
@@ -490,6 +568,10 @@ class RAGChain:
         为什么暴露此方法：
             Task 2.2 的 LangGraph 检索节点只需检索，不需走完整 RAG 管道。
             暴露 retrieve 方法避免 LangGraph 重新实例化检索器。
+
+        为什么改用 _retrieve_step()（设计决策）：
+            消除 retrieve() 和 invoke() 中的检索异常处理逻辑重复。
+            两者都调用 _retrieve_step()，都在编排层捕获 RetrievalError → GenerationError。
 
         Args:
             question: 用户问题
@@ -501,13 +583,7 @@ class RAGChain:
             GenerationError: 检索失败时（包装 RetrievalError）
         """
         try:
-            docs = self._retriever.invoke(question)
-            logger.info(
-                "独立检索完成",
-                question=question[:50],
-                doc_count=len(docs),
-            )
-            return docs
+            return self._retrieve_step(question)
         except RetrievalError as e:
             raise GenerationError(
                 f"检索失败，问题: '{question[:50]}...': {e}"

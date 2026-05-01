@@ -497,25 +497,17 @@ class TestRAGChainExtractCitations:
 class TestRAGChainAinvoke:
     """RAGChain.ainvoke 方法测试。"""
 
-    def test_ainvoke_calls_invoke(self):
-        """当前实现：ainvoke 委托给 invoke。"""
+    def test_ainvoke_raises_not_implemented(self):
+        """ainvoke 抛出 NotImplementedError（非假异步）。"""
         chain = RAGChain(
             retriever=create_mock_retriever(),
             llm=create_mock_llm(),
             prompt=get_prompt(PromptVersion.V1),
         )
-        # mock invoke 方法
-        expected = RAGResponse(
-            answer="测试回答", sources=[], citations=[], retrieval_count=0
-        )
-        chain.invoke = MagicMock(return_value=expected)
 
-        # ainvoke 是 async，但当前实现直接调用 invoke
-        # 使用 asyncio.run 测试
         import asyncio
-        result = asyncio.run(chain.ainvoke("测试问题"))
-        assert result == expected
-        chain.invoke.assert_called_once_with("测试问题")
+        with pytest.raises(NotImplementedError):
+            asyncio.run(chain.ainvoke("测试问题"))
 
 
 # ============================================================
