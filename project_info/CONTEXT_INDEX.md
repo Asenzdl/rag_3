@@ -61,6 +61,16 @@
 | `src/utils/logger.py` | `F:bind_request_id` `F:setup_logging` `F:unbind_request_id` | 结构化日志配置模块。 |
 | `src/utils/retry.py` | `R:NonRetryableError` `R:RetryableError` `F:create_llm_retry_decorator` `F:with_retry` | LLM 调用重试机制。 |
 
+### `src/workflow/`
+
+> workflow 包 — LangGraph 工作流定义：状态、节点、图构建。
+
+| 文件 | 公共 API | 职责概要 |
+| :--- |:--- | :--- |
+| `src/workflow/state.py` | `C:GraphState` | LangGraph 工作流全局状态定义（TypedDict + Annotated + add_messages reducer）。 |
+| `src/workflow/nodes.py` | — | 节点函数（Task 2.2，待实现）。 |
+| `src/workflow/builder.py` | — | 图构建（Task 2.3，待实现）。 |
+
 
 ## 🔗 路径映射
 
