@@ -4,15 +4,20 @@
 1. classify_intent：问候 → greeting；知识库问题 → retrieve；无关问题 → fallback
 2. classify_intent：LLM 调用失败 → 默认 retrieve
 3. classify_intent：LLM 输出无法识别 → 默认 retrieve
-4. route_node：正常分类 + 提取 question
-5. route_node：messages 中无 HumanMessage → question=""
-6. retrieve_node：正常检索 → documents 非空
-7. retrieve_node：RetrievalError → documents=[]
-8. retrieve_node：未预期异常 → documents=[]
-9. generate_node：正常生成 → messages 含 AIMessage + iteration_count 递增
-10. generate_node：空文档 → 返回空检索预设回复 + iteration_count 递增
-11. generate_node：LLM 调用异常 → 返回错误回复 + iteration_count 递增
-12. generate_node：未预期异常 → 返回错误回复 + iteration_count 递增
+4. classify_intent：空问题 → 返回有效路由标签
+5. route_node：正常分类 + 提取 question
+6. route_node：messages 中无 HumanMessage → question=""
+7. route_node：问候语变体 → greeting
+8. route_node：知识库变体问题 → retrieve
+9. retrieve_node：正常检索 → documents 非空
+10. retrieve_node：RetrievalError → documents=[]
+11. retrieve_node：未预期异常 → documents=[]
+12. retrieve_node：空 question → 调用 retriever("") 返回空
+13. generate_node：正常生成 → messages 含 AIMessage + iteration_count 递增
+14. generate_node：空文档 → 返回空检索预设回复 + iteration_count 递增
+15. generate_node：LLM 调用异常 → 返回错误回复 + iteration_count 递增
+16. generate_node：未预期异常 → 返回错误回复 + iteration_count 递增
+17. generate_node：引用提取失败 → 不影响生成结果
 """
 
 from typing import Any, List, Optional
@@ -26,6 +31,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.prompts import ChatPromptTemplate
 
+from src.generation.exceptions import CitationExtractionError
 from src.retriever.base_retriever import RetrievalError
 from src.workflow.nodes import (
     EMPTY_RETRIEVAL_RESPONSE,
@@ -253,6 +259,12 @@ class TestClassifyIntent:
         result = classify_intent("LangGraph 是什么？", llm)
         assert result == RETRIEVE
 
+    def test_empty_question_still_returns_valid_label(self):
+        """空问题 → 返回有效路由标签（不崩溃）。"""
+        llm = FakeChatModel(response_content="greeting")
+        result = classify_intent("", llm)
+        assert result in VALID_ROUTE_DECISIONS
+
 
 # ============================================================
 # nodes.py 测试
@@ -367,6 +379,34 @@ class TestRouteNode:
 
         assert result["question"] == "第二个问题"
 
+    def test_route_node_greeting_multiple_forms(self, mock_retriever, mock_prompt):
+        """问候语变体 → route_decision=greeting。"""
+        llm = FakeChatModel(response_content="greeting")
+        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        state = GraphState(
+            messages=[HumanMessage(content="早上好")],
+            question="",
+            documents=[],
+            iteration_count=0,
+            route_decision="",
+        )
+        result = nodes["route"](state)
+        assert result["route_decision"] == GREETING
+
+    def test_route_node_knowledge_base_question(self, mock_retriever, mock_prompt):
+        """知识库变体问题 → route_decision=retrieve。"""
+        llm = FakeChatModel(response_content="retrieve")
+        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        state = GraphState(
+            messages=[HumanMessage(content="什么是 TypeScript？")],
+            question="",
+            documents=[],
+            iteration_count=0,
+            route_decision="",
+        )
+        result = nodes["route"](state)
+        assert result["route_decision"] == RETRIEVE
+
 
 class TestRetrieveNode:
     """检索节点测试。"""
@@ -446,6 +486,27 @@ class TestRetrieveNode:
 
         mock_retriever.invoke.assert_called_once_with("LangGraph 是什么？")
 
+    def test_retrieve_node_empty_question(
+        self, mock_prompt,
+    ):
+        """空 question → retriever 被调用但返回空。"""
+        mock_retriever = MagicMock()
+        mock_retriever.invoke.return_value = []
+
+        llm = FakeChatModel()
+        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        state = GraphState(
+            messages=[HumanMessage(content="测试")],
+            question="",
+            documents=[],
+            iteration_count=0,
+            route_decision="retrieve",
+        )
+        result = nodes["retrieve"](state)
+
+        mock_retriever.invoke.assert_called_once_with("")
+        assert result["documents"] == []
+
 
 class TestGenerateNode:
     """生成节点测试。"""
@@ -519,6 +580,23 @@ class TestGenerateNode:
         result = nodes["generate"](state_with_documents)
 
         assert set(result.keys()) == {"messages", "iteration_count"}
+
+    def test_generate_node_citation_extraction_error(
+        self, mock_retriever, mock_prompt, state_with_documents,
+    ):
+        """引用提取失败 → 不影响生成结果和 iteration_count。"""
+        llm = FakeChatModel(response_content="正常回答")
+        failing_extractor = MagicMock()
+        failing_extractor.extract.side_effect = CitationExtractionError("提取失败")
+
+        nodes = create_workflow_nodes(
+            mock_retriever, llm, mock_prompt,
+            citation_extractor=failing_extractor,
+        )
+        result = nodes["generate"](state_with_documents)
+
+        assert result["messages"][0].content == "正常回答"
+        assert result["iteration_count"] == 1
 
 
 # ============================================================
