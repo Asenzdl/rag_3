@@ -101,14 +101,13 @@ nodes.py
 ├── langchain_core.prompts          # ChatPromptTemplate
 ├── langchain_core.documents        # Document
 ├── langchain_core.messages         # HumanMessage, AIMessage
-├── langchain_core.output_parsers   # StrOutputParser
 ├── src.workflow.state              # GraphState
 ├── src.workflow.routing            # classify_intent, VALID_ROUTE_DECISIONS
 ├── src.retriever.protocols         # RetrieverProtocol
 ├── src.retriever.base_retriever    # RetrievalError
 ├── src.generation.rag_chain        # format_docs
 ├── src.generation.citation_chain   # CitationExtractor
-├── src.generation.exceptions       # LLMCallError, CitationExtractionError
+├── src.generation.exceptions       # CitationExtractionError
 └── src.utils.retry                 # with_retry
 ```
 
@@ -145,7 +144,7 @@ nodes.py 职责：
 |------|---------|---------|------------|------|
 | LLM 调用失败（路由） | route_node | 默认 `route_decision="retrieve"` | 否 | 乐观回退：让系统尝试检索，而非直接放弃 |
 | RetrievalError | retrieve_node | 返回 `{"documents": []}` | 否 | generate_node 的空检索拦截会返回预设回复 |
-| LLMCallError（生成） | generate_node | 返回错误 AIMessage + 递增 iteration_count | 否 | 用户得到明确错误提示；iteration_count 递增防止无限循环 |
+| Exception（生成） | generate_node | 返回错误 AIMessage + 递增 iteration_count | 否 | 用户得到明确错误提示；iteration_count 递增防止无限循环 |
 | CitationExtractionError | generate_node | 降级为 `citations=[]` | 否 | 引用提取是增强功能，不应中断主流程 |
 | 一般 Exception | 所有节点 | 返回错误 AIMessage + 日志 | 否 | 防止未预期异常崩溃整个图 |
 
@@ -374,7 +373,6 @@ def create_workflow_nodes(
 
     # 步骤 1b：构建 LCEL 生成链
     # prompt_llm_chain = prompt | llm（返回 AIMessage，用于带重试的同步调用）
-    # generation_chain = prompt | llm | StrOutputParser()（返回 str，备用）
 
     # 步骤 1c：创建带重试的 invoke 函数
     # retryable_invoke = with_retry(prompt_llm_chain.invoke, max_attempts=3, min_wait=4, max_wait=10)
@@ -515,8 +513,8 @@ def create_workflow_nodes(
         #     # 提取 token 使用量（与 RAGChain._generate_step 一致）
         #     usage = getattr(ai_message, "usage_metadata", None) or {}
         #     日志：info 记录生成完成 + answer 长度 + token 使用量
-        # except LLMCallError as e:
-        #     日志：error 记录生成失败
+        # except Exception as e:
+        #     日志：error 记录生成失败 + error_type
         #     answer = GENERATION_ERROR_RESPONSE
         # 可观测性：步骤 4 的 try 块前记录 start = time.perf_counter()
         #           try/except 后计算 latency_ms
