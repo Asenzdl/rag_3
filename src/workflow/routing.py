@@ -9,6 +9,8 @@
     3. 职责单一：routing.py 负责"分类逻辑"，nodes.py 负责"状态管理"
 """
 
+from functools import lru_cache
+
 import structlog
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
@@ -54,6 +56,7 @@ ROUTE_HUMAN_TEMPLATE = "{question}"
 # Prompt 工厂函数
 # ============================================================
 
+@lru_cache(maxsize=1)
 def create_route_prompt() -> ChatPromptTemplate:
     """创建路由分类 Prompt 模板。
 
