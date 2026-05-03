@@ -20,7 +20,6 @@ import structlog
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.generation.citation_chain import CitationExtractor
@@ -98,9 +97,7 @@ def create_workflow_nodes(
 
     # 第1a步：构建 LCEL 生成链
     # prompt_llm_chain 返回 AIMessage，用于带重试的同步调用
-    # generation_chain 返回 str，备用
     prompt_llm_chain = prompt | llm
-    generation_chain = prompt | llm | StrOutputParser()
 
     # 第1b步：创建带重试的 invoke 函数
     retryable_invoke = with_retry(
