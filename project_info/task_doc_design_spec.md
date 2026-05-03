@@ -1,4 +1,4 @@
-# design.md 设计规范 v2
+# design.md 设计规范
 
 > **适用范围**：所有 Phase 的 Task 阶段1 产出物（design.md 架构设计文档）
 > **关联规范**：`project_info/tech_doc_design_spec.md`（技术学习文档规范）
@@ -14,7 +14,7 @@
 
 ---
 
-## 一、design.md 模板
+## 一、design.md
 
 > 路径：`.project/tasks/phase_X/task_X.X_design.md`
 > **范例说明**：下方种子范例中出现的 `Task 4.2`、`DocumentProcessor`、`embedder` 等均为教学构造，实际写作时以本 Task 真实情况替换。
