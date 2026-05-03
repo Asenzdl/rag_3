@@ -1,7 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m pytest tests/ -v --ignore=tests/test_e2e.py --ignore=tests/test_code_broken.py --ignore=tests/test_retriever_verify.py --ignore=tests/test_base_retriever.py -x)"
+      "Bash(python -m pytest tests/ -v --ignore=tests/test_e2e.py --ignore=tests/test_code_broken.py --ignore=tests/test_retriever_verify.py --ignore=tests/test_base_retriever.py -x)",
+      "WebFetch(domain:docs.langchain.com)",
+      "Bash(curl -sL \"https://docs.langchain.com/oss/python/releases/langgraph-v1\")",
+      "Bash(curl -sL \"https://docs.langchain.com/oss/python/releases/langchain-v1\")",
+      "Bash(curl -sL \"https://docs.langchain.com/oss/python/releases/changelog\")",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "Bash(grep -v '^\\\\s*$')",
+      "Bash(curl -sL \"https://pypi.org/pypi/langchain-core/json\")",
+      "Bash(python3 -c ' *)",
+      "Bash(py *)",
+      "Bash(curl -sL \"https://docs.langchain.com/oss/python/migrate/langchain-v1\")",
+      "Bash(/d/wjs/software/anaconda3/envs/langchain_v1.2/python -c ' *)",
+      "Bash(curl -sL \"https://docs.langchain.com/oss/python/migrate/langgraph-v1\")",
+      "Bash(curl -sL \"https://docs.langchain.com/oss/python/langgraph/changelog-py\")",
+      "Bash(/d/wjs/software/anaconda3/envs/langchain_v1.2/python *)"
     ],
     "deny": [
       "NotebookEdit"

@@ -101,74 +101,51 @@
 
 ---
 
-## 📋 Task 目标索引
+### 第三方库 API 参考缓存
 
-> AI可根据目标去判断某个 Task 是否与当前 Task 可能产生前瞻性设计，再具体去阅读其 Task 文档
-> 按需阅读Task文档，`.project/outline/phase_X_*/task_X.X_*.md`
+> AI 训练数据盲区勘误 — 仅记录 AI 训练数据中不存在或错误的关键 API 差异。
+> 直接信任，禁止重复查 context7/源码验证。**
 
-### Phase 1: 可靠基座 + 评估驱动
-
-| Task | 目标 |
+| 文件 | 内容 |
 |------|------|
-| 1.0 | LangChain 知识库构建（爬虫 + 文档分离） |
-| 1.1 | 数据管道：加载 → 分块 → 向量化 |
-| 1.2 | 评估数据集构建（QA 问答对） |
-| 1.3 | 基础向量检索器封装（Chroma + MMR） |
-| 1.4 | 检索评估指标体系（Hit Rate, MRR） |
-| 1.5 | Prompt 模板版本管理（V1/V2） |
-| 1.6 | 基础 RAG Chain（LCEL + 空检索拦截 + 引用生成） |
-| 1.7 | LLM 重试机制 + 结构化日志 |
-| 1.8 | CLI 交互 + E2E 测试 |
-| 1.9 | Prompt 接口修复 + 代码质量 |
-| 1.10 | 12-Factor 配置 + 工厂模式 + 协议抽象 |
-| 1.11 | RAGChain 重构 + 代码质量 |
+| `project_info/api_refs/langgraph_compiled_graph.md` | CompiledStateGraph 所有 public 方法签名 |
+| `project_info/api_refs/langgraph_v2_streaming.md` | LangGraph v2 streaming API 参考 
 
-### Phase 2: LangGraph 骨架
+---
 
-| Task | 目标 |
+## 📋 Phase 总览
+
+> 单 Task 详情按需阅读 `.project/outline/phase_X_*/task_X.X_*.md`
+> 前置约束速查：当前 Task 编码前 → 跳读 `forward_looking_design.md` 对应行号
+
+| Task | 行号 |
 |------|------|
-| 2.1 | LangGraph 状态定义（StateGraph + TypedDict） |
-| 2.2 | 核心节点实现（检索 → 生成 → 引用验证） |
-| 2.3 | 条件边与图构建（Conditional Edge） |
-| 2.4 | 检查点持久化（SQLite Checkpointer） |
-| 2.5 | 对话记忆（短期记忆 + 摘要记忆） |
-| 2.6 | 文档评估与自适应路由（自信度路由） |
-| 2.7 | CLI 升级（流式输出 + 会话管理） |
+| **Phase 1** |
+| 1.6  | #1 → L11-L14 |
+| 1.9  | #2 → L16-L19 |
+| 1.10 | #3-L21-L24, #4-L26-L29, #NICE-L84 |
+| 1.11 | #5-L31-L34, #6-L36-L39, #7-L41-L43 |
+| **Phase 2** |
+| 2.2  | #5 → L31-L34 |
+| 2.4  | #3 → L21-L24 |
+| 2.5  | #2 → L16-L19 |
+| 2.6  | #8-L49-L53, #9-L55-L57 |
+| 2.7  | #7 → L41-L43 |
+| **Phase 3** |
+| 3.7  | #10 → L63-L66 |
+| **Phase 4** |
+| 4.1  | #8-L49-L53, #9-L55-L57, #10-L63-L66 |
+| 4.5  | #6-L36-L39, #11-L72-L76 |
+| 4.6  | #NICE-L85 |
+| **Phase 5** |
+| 5.1  | #1-L11-L14, #11-L72-L76, #NICE-L86 |
 
-### Phase 3: 评估驱动检索增强
-
-| Task | 目标 |
-|------|------|
-| 3.1 | 多查询检索器（MultiQuery，提升模糊问题召回率） |
-| 3.2 | HyDE 假设文档嵌入 |
-| 3.3 | 集成检索（Ensemble：多检索器合并） |
-| 3.4 | 重排序器（Reranker：Cross-Encoder 精排） |
-| 3.5 | RAGAS 评估框架集成 |
-| 3.6 | A/B 对比实验（基线 vs 增强策略） |
-| 3.7 | 检索策略固化（选择最优方案） |
-
-### Phase 4: 工具 + 缓存 + 异步
-
-| Task | 目标 |
-|------|------|
-| 4.1 | Tavily 搜索工具集成 |
-| 4.2 | MCP 服务集成（Model Context Protocol） |
-| 4.3 | LLM 精确缓存（结果级缓存） |
-| 4.4 | 语义缓存（Embedding 相似度缓存） |
-| 4.5 | 异步支持（Async RAG Chain） |
-| 4.6 | 监控与指标（Prometheus + Grafana） |
-| 4.7 | 集成测试（端到端验证） |
-
-### Phase 5: 服务化与容器化
-
-| Task | 目标 |
-|------|------|
-| 5.1 | FastAPI 服务封装 |
-| 5.2 | SSE 流式输出 |
-| 5.3 | Gradio UI 交互界面 |
-| 5.4 | Docker 容器化部署 |
-| 5.5 | 配置安全（环境变量 + 密钥管理） |
-| 5.6 | 部署文档编写 |
-| 5.7 | 交付归档 |
+| Phase | 目标 | 状态 |
+|-------|------|------|
+| 1 | 可靠基座 + 评估驱动（11 Tasks） | ✅ |
+| 2 | LangGraph 骨架 + 对话记忆（7 Tasks） | 🔄 进行中 |
+| 3 | 评估驱动检索增强（7 Tasks） | ⏳ |
+| 4 | 工具调用 + 缓存 + 异步（7 Tasks） | ⏳ |
+| 5 | 服务化与容器化（7 Tasks） | ⏳ |
 
 ---
