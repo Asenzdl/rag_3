@@ -24,6 +24,10 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from src.generation.citation_chain import CitationExtractor
 from src.generation.exceptions import CitationExtractionError
+# 复用 RAGChain 的 format_docs 而非在 workflow 层重新实现：
+# format_docs 是纯字符串格式化函数，与 RAGChain 共享同一份，
+# 避免两处维护相同逻辑。workflow 层只关心"如何组装 LLM 上下文"，
+# 不关心"文档格式化的内部细节"——从 rag_chain 导入是合理的依赖方向。
 from src.generation.rag_chain import format_docs
 from src.retriever.base_retriever import RetrievalError
 from src.retriever.protocols import RetrieverProtocol
@@ -97,9 +101,20 @@ def create_workflow_nodes(
 
     # 第1a步：构建 LCEL 生成链
     # prompt_llm_chain 返回 AIMessage，用于带重试的同步调用
+    # 为什么需要 prompt_llm_chain（有 StrOutputParser 和无的区别）：
+    #   generate_node 需要在同步调用中提取 AIMessage 的 usage_metadata
+    #   （token 使用量），StrOutputParser 会丢掉这些信息（只保留 content str）。
+    #   因此保留 prompt | llm（返回 AIMessage）用于带重试的同步调用。
+    #   这在 RAGChain 中已经验证过的模式，节点函数沿用同一设计。
     prompt_llm_chain = prompt | llm
 
     # 第1b步：创建带重试的 invoke 函数
+    # 为什么用 with_retry 而非在 generate_node 内直接调 prompt_llm_chain.invoke：
+    #   LLM API 调用可能因网络抖动/限流短暂失败（可恢复），
+    #   with_retry 封装指数退避重试，最多重试 2 次。
+    #   如果重试耗尽仍失败，才由 generate_node 的 except Exception 兜底降级。
+    #   与 RAGChain 共用同一套重试机制（src.utils.retry.with_retry），
+    #   避免 workflow 层重复实现重试逻辑。
     retryable_invoke = with_retry(
         prompt_llm_chain.invoke, max_attempts=3, min_wait=4, max_wait=10,
     )
