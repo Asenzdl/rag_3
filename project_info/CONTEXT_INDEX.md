@@ -68,7 +68,8 @@
 | 文件 | 公共 API | 职责概要 |
 | :--- |:--- | :--- |
 | `src/workflow/state.py` | `C:GraphState` | LangGraph 工作流全局状态定义（TypedDict + Annotated + add_messages reducer）。 |
-| `src/workflow/nodes.py` | — | 节点函数（Task 2.2，待实现）。 |
+| `src/workflow/nodes.py` | `F:create_workflow_nodes` | LangGraph 节点工厂：闭包注入依赖，返回 route/retrieve/generate 节点字典。 |
+| `src/workflow/routing.py` | `F:classify_intent` `F:create_route_prompt` `V:RETRIEVE/GREETING/FALLBACK` | 路由逻辑：意图分类 Prompt + LLM 分类函数 + 路由标签常量。 |
 | `src/workflow/builder.py` | — | 图构建（Task 2.3，待实现）。 |
 
 
