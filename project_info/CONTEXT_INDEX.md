@@ -117,7 +117,7 @@
 ## 📋 Phase 总览
 
 > 单 Task 详情按需阅读 `.project/outline/phase_X_*/task_X.X_*.md`
-> 前置约束速查：当前 Task 编码前 → 跳读 `forward_looking_design.md` 对应行号
+> 前置约束速查：当前 Task 编码前 → 跳读 `project_info/forward_looking_design.md` 对应行号
 
 | Task | 行号 |
 |------|------|
