@@ -30,6 +30,7 @@ class Settings(BaseSettings):
         - Embedding 配置
         - 评估路径
         - 检查点路径（Phase 2 预留）
+        - 工作流配置
 
     使用方式：
         from src.core.config import settings
@@ -84,6 +85,12 @@ class Settings(BaseSettings):
     # ===== 检查点路径（Phase 2 预留）=====
     checkpoint_db_path: str = Field(
         default="db/checkpoints.db", description="LangGraph 检查点数据库路径"
+    )
+
+    # ===== 工作流配置 =====
+    max_iterations: int = Field(
+        default=3,
+        description="工作流最大迭代次数（安全阀阈值，Task 2.6 条件边使用）",
     )
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
