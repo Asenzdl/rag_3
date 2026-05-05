@@ -70,7 +70,8 @@
 | `src/workflow/state.py` | `C:GraphState` | LangGraph 工作流全局状态定义（TypedDict + Annotated + add_messages reducer）。 |
 | `src/workflow/nodes.py` | `F:create_workflow_nodes` | LangGraph 节点工厂：闭包注入依赖，返回 route/retrieve/generate 节点字典。 |
 | `src/workflow/routing.py` | `F:classify_intent` `F:create_route_prompt` `V:RETRIEVE/GREETING/FALLBACK` | 路由逻辑：意图分类 Prompt + LLM 分类函数 + 路由标签常量。 |
-| `src/workflow/builder.py` | — | 图构建（Task 2.3，待实现）。 |
+| `src/workflow/builder.py` | `F:build_graph` `V:GREETING_RESPONSE/FALLBACK_RESPONSE` | 图构建：Settings 驱动组装 StateGraph + 简单终端节点（greeting/fallback）。 |
+| `src/workflow/edges.py` | `F:route_after_classification` | 条件边路由函数：route 节点后，根据 route_decision 决定下一跳。 |
 
 
 ## 🔗 路径映射
@@ -104,8 +105,8 @@
 
 ### 第三方库 API 参考缓存
 
-> AI 训练数据盲区勘误 — 仅记录 AI 训练数据中不存在或错误的关键 API 差异。
-> 直接信任，禁止重复查 context7/源码验证。**
+> AI 训练数据盲区勘误 — 仅记录 AI 训练数据中不存在或错误的关键 API 差异
+> 已有的直接信任，禁止重复查 context7/源码验证
 
 | 文件 | 内容 |
 |------|------|
