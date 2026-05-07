@@ -12,7 +12,7 @@
 - **thread_id 的作用**：通过 `config["configurable"]["thread_id"]` 区分不同会话，同一 thread_id 的所有调用共享状态历史。
 
 ### 生产级注意事项
-- **Phase 2 使用** `SqliteSaver`：比 `MemorySaver` 更接近生产环境，同时无需额外部署 PostgreSQL，降低复杂度。
+- **Phase 2 使用** `SqliteSaver`：比 `MemorySaver` 更接近生产环境，但必须预留 PostgreSQL 可扩展接口。
 - **检查点数据库路径**：将 SQLite 文件存放在 `db/checkpoints.db`，与向量库 `db/chroma/` 同级管理。
 - **检查点清理策略**：LangGraph 支持 TTL（Time-to-Live）配置，可设置检查点自动过期，防止数据库无限膨胀。
 - **并发会话隔离**：不同用户使用不同 `thread_id`，检查点自动按 thread 隔离，互不干扰。
