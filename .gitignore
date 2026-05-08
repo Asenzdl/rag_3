@@ -8,7 +8,6 @@ db/
 data/
 
 # 敏感配置
-src/config.py
 
 # Python 缓存
 __pycache__/

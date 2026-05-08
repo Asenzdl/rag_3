@@ -17,6 +17,7 @@
 
 import structlog
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -81,7 +82,10 @@ def _fallback_node(state: GraphState) -> dict:
 # 图构建函数
 # ============================================================
 
-def build_graph(settings: Settings) -> CompiledStateGraph:
+def build_graph(
+    settings: Settings,
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> CompiledStateGraph:
     """构建问答工作流图。
 
     图拓扑：
@@ -95,6 +99,11 @@ def build_graph(settings: Settings) -> CompiledStateGraph:
         调用方只需传入 settings 即可获取配置好的图，无需了解内部组件。
         测试时通过 mock factories 模块注入 Mock 依赖。
 
+    为什么 checkpointer 是外部传入而非内部创建（设计决策）：
+        checkpointer 是资源（数据库连接），其生命周期需要由调用方管理
+        （何时打开、何时关闭）。build_graph 只负责"组装图"，
+        不负责"管理资源"。测试时传入 None 可在无持久化场景下运行。
+
     为什么 greeting 和 fallback 是模块级函数而非闭包（功能取舍）：
         这两个节点无需注入外部依赖（纯预设回复），模块级函数更简单。
         如果后续需要 LLM 生成问候回复，可改为闭包注入。
@@ -106,6 +115,8 @@ def build_graph(settings: Settings) -> CompiledStateGraph:
 
     Args:
         settings: 全局配置实例
+        checkpointer: 可选的检查点管理器。传入后支持状态持久化，
+            调用 invoke 时需传入 config={"configurable": {"thread_id": "xxx"}}
 
     Returns:
         编译后的 CompiledStateGraph
@@ -152,8 +163,10 @@ def build_graph(settings: Settings) -> CompiledStateGraph:
     #   添加 should_continue 路由函数和安全阀节点
 
     # 第6步：编译并返回
-    compiled = graph.compile()
-    logger.info("工作流图构建完成")
+    #   注入：checkpointer（可 Mock，可传 None）
+    #   checkpointer=None 时等价于之前的行为（无持久化）
+    compiled = graph.compile(checkpointer=checkpointer)
+    logger.info("工作流图构建完成", has_checkpointer=checkpointer is not None)
 
     return compiled
 

@@ -63,15 +63,16 @@
 
 ### `src/workflow/`
 
-> workflow 包 — LangGraph 工作流定义：状态、节点、图构建。
+> workflow 包 — LangGraph 工作流定义：状态、节点、图构建、检查点持久化。
 
 | 文件 | 公共 API | 职责概要 |
 | :--- |:--- | :--- |
 | `src/workflow/state.py` | `C:GraphState` | LangGraph 工作流全局状态定义（TypedDict + Annotated + add_messages reducer）。 |
 | `src/workflow/nodes.py` | `F:create_workflow_nodes` | LangGraph 节点工厂：闭包注入依赖，返回 route/retrieve/generate 节点字典。 |
 | `src/workflow/routing.py` | `F:classify_intent` `F:create_route_prompt` `V:RETRIEVE/GREETING/FALLBACK` | 路由逻辑：意图分类 Prompt + LLM 分类函数 + 路由标签常量。 |
-| `src/workflow/builder.py` | `F:build_graph` `V:GREETING_RESPONSE/FALLBACK_RESPONSE` | 图构建：Settings 驱动组装 StateGraph + 简单终端节点（greeting/fallback）。 |
+| `src/workflow/builder.py` | `F:build_graph` `V:GREETING_RESPONSE/FALLBACK_RESPONSE` | 图构建：Settings 驱动组装 StateGraph + 可选 checkpointer + 简单终端节点（greeting/fallback）。 |
 | `src/workflow/edges.py` | `F:route_after_classification` | 条件边路由函数：route 节点后，根据 route_decision 决定下一跳。 |
+| `src/workflow/checkpointer.py` | `F:create_checkpointer` | 检查点持久化工厂：上下文管理器模式封装 SqliteSaver + setup() + 目录自动创建。 |
 
 
 ## 🔗 路径映射
