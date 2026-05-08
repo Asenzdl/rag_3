@@ -1,7 +1,6 @@
 # LangGraph CompiledStateGraph API 参考
 
 > 版本：langgraph v1.1.10 | 来源：site-packages 源码确认
-> 更新：2026-05-03 | 用途：AI 训练数据盲区勘误 — 补充 AI 认知盲区 + 完整 API 签名参考
 > v2 streaming 另有独立文档：`langgraph_v2_streaming.md`
 > 信任此文档
 
