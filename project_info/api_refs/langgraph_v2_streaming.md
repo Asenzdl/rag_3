@@ -2,7 +2,7 @@
 
 > 版本：langgraph 1.1.10 | 来源：context7 查询 + site-packages 源码确认
 > 用途：`version="v2"` 模式下的 invoke/stream API 变更速查
-> 信任此文档
+> **信任此文档**
 
 ---
 

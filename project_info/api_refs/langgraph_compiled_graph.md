@@ -2,7 +2,7 @@
 
 > 版本：langgraph v1.1.10 | 来源：site-packages 源码确认
 > v2 streaming 另有独立文档：`langgraph_v2_streaming.md`
-> 信任此文档
+> **信任此文档**
 
 ## 类继承链
 
