@@ -20,19 +20,13 @@ import structlog
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
 
-from src.generation.citation_chain import CitationExtractor
-from src.generation.exceptions import CitationExtractionError
-# 复用 RAGChain 的 format_docs 而非在 workflow 层重新实现：
-# format_docs 是纯字符串格式化函数，与 RAGChain 共享同一份，
-# 避免两处维护相同逻辑。workflow 层只关心"如何组装 LLM 上下文"，
-# 不关心"文档格式化的内部细节"——从 rag_chain 导入是合理的依赖方向。
-from src.generation.rag_chain import format_docs
+from src.workflow.citation import CitationExtractor, CitationExtractionError
+from src.utils.retry import with_retry
 from src.retriever.base_retriever import RetrievalError
 from src.retriever.protocols import RetrieverProtocol
-from src.utils.retry import with_retry
-from src.workflow.routing import RETRIEVE, classify_intent
+from src.workflow.prompts import build_generate_messages, format_docs
+from src.workflow.routing import classify_intent
 from src.workflow.state import GraphState
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +61,6 @@ GENERATION_ERROR_RESPONSE = (
 def create_workflow_nodes(
     retriever: RetrieverProtocol,
     llm: BaseChatModel,
-    prompt: ChatPromptTemplate,
     citation_extractor: CitationExtractor | None = None,
     max_iterations: int = 3,
 ) -> dict[str, Callable[[GraphState], dict]]:
@@ -76,19 +69,9 @@ def create_workflow_nodes(
     为什么用工厂闭包而非模块级导入（设计决策）：
         详见 design.md 决策 1。核心理由：核心逻辑可 Mock，依赖可注入。
 
-    为什么返回 dict 而非 namedtuple/dataclass（功能取舍）：
-        LangGraph 的 add_node 期望 (name, func) 对，
-        dict 的 key 自然对应节点名，value 对应节点函数。
-
-    为什么 llm 同时用于路由和生成（功能取舍）：
-        当前为简化实现，路由和生成共用同一 LLM 实例。
-        工厂闭包模式支持未来分离——只需添加 route_llm 参数，
-        route_node 使用 route_llm，generate_node 使用 llm。
-
     Args:
         retriever: 检索器（满足 RetrieverProtocol 即可，可 Mock）
         llm: Chat 模型实例（路由和生成共用，可 Mock）
-        prompt: RAG 生成 Prompt 模板（非路由 Prompt）
         citation_extractor: 引用提取器，默认创建正则策略实例
         max_iterations: 最大迭代次数（安全阀阈值，默认 3）
 
@@ -96,27 +79,16 @@ def create_workflow_nodes(
         {"route": route_node, "retrieve": retrieve_node, "generate": generate_node}
     """
     # 第1步：初始化依赖
-    # 注入：retriever、llm、prompt 均可 Mock
     _citation_extractor = citation_extractor or CitationExtractor()
 
-    # 第1a步：构建 LCEL 生成链
-    # prompt_llm_chain 返回 AIMessage，用于带重试的同步调用
-    # 为什么需要 prompt_llm_chain（有 StrOutputParser 和无的区别）：
-    #   generate_node 需要在同步调用中提取 AIMessage 的 usage_metadata
-    #   （token 使用量），StrOutputParser 会丢掉这些信息（只保留 content str）。
-    #   因此保留 prompt | llm（返回 AIMessage）用于带重试的同步调用。
-    #   这在 RAGChain 中已经验证过的模式，节点函数沿用同一设计。
-    prompt_llm_chain = prompt | llm
-
-    # 第1b步：创建带重试的 invoke 函数
-    # 为什么用 with_retry 而非在 generate_node 内直接调 prompt_llm_chain.invoke：
-    #   LLM API 调用可能因网络抖动/限流短暂失败（可恢复），
-    #   with_retry 封装指数退避重试，最多重试 2 次。
-    #   如果重试耗尽仍失败，才由 generate_node 的 except Exception 兜底降级。
-    #   与 RAGChain 共用同一套重试机制（src.utils.retry.with_retry），
-    #   避免 workflow 层重复实现重试逻辑。
+    # 第2步：创建带重试的 invoke 函数（包装 llm.invoke 而非 prompt | llm chain）
+    # 为什么用 lambda msgs: llm.invoke(msgs) 而非直接传 llm.invoke（设计决策）：
+    #   with_retry 要求 callable 参数不含 self 引用（llm.invoke 是绑定方法），
+    #   直接传 llm.invoke 会导致序列化问题。lambda 是轻量闭包，无此限制。
+    # 为什么入参是 list[BaseMessage]（设计决策）：
+    #   与 LangGraph 官方模式一致——LLM 的输入输出都是 messages，没有 dict 中间层。
     retryable_invoke = with_retry(
-        prompt_llm_chain.invoke, max_attempts=3, min_wait=4, max_wait=10,
+        lambda msgs: llm.invoke(msgs), max_attempts=3, min_wait=4, max_wait=10,
     )
 
     logger.info(
@@ -254,15 +226,25 @@ def create_workflow_nodes(
         context = format_docs(documents)
         sources = [doc.metadata.get("source", "") for doc in documents]
 
-        # 第4步：调用 LLM 生成回答 + 异常处理
-        # 为什么用 except Exception 统一捕获而非分别捕获 LLMCallError 和其他异常（反直觉辩护）：
+        # 第4步：通过 build_generate_messages 构建消息列表后调用 LLM
+        # 为什么用 build_generate_messages + direct llm.invoke 而非 prompt | llm（设计决策）：
+        #   与 LangGraph 官方模式对齐——messages 是 LLM 输入的唯一载体。
+        #   Task 2.5 记忆管理直接操作 state["messages"]，处理后自然流入 chat_history，
+        #   无需 chat_history 桥接层。
+        # chat_history 传入 state["messages"][:-1]（排除当前轮原始 HumanMessage），
+        # 因为当前轮问题已由 question + context 格式化为新的 HumanMessage。
+        messages = build_generate_messages(
+            context=context,
+            question=question,
+            chat_history=state.get("messages", [])[:-1],
+        )
+        # 为什么用 except Exception 统一捕获（反直觉辩护）：
         #     with_retry(reraise=True) 重抛原始 SDK 异常（如 openai.APITimeoutError），
-        #     不是 LLMCallError——LLMCallError 是 RAGChain._generate_step 的包装产物，
-        #     节点函数不经过 RAGChain。统一捕获 Exception + 日志记录 error_type
-        #     保留了诊断信息，同时避免了对特定 SDK 异常类型的依赖。
+        #     不是 LLMCallError。统一捕获 Exception + 日志记录 error_type
+        #     保留了诊断信息，避免对特定 SDK 异常类型的依赖。
         start = time.perf_counter()
         try:
-            ai_message = retryable_invoke({"context": context, "question": question})
+            ai_message = retryable_invoke(messages)
             answer = ai_message.content
 
             # 提取 token 使用量（与 RAGChain._generate_step 一致）

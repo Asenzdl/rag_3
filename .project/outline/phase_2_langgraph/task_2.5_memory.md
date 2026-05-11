@@ -3,11 +3,9 @@
 ### 任务目标
 实现对话历史的智能管理，包括短期记忆的滑动窗口裁剪和长对话的摘要压缩，防止上下文窗口溢出。
 
-**前提条件**：此 Task 依赖 Task 2.4b 的基底修正。基底修正后，workflow 与 generation 完全解耦，generate_node 不再使用 `prompt | llm` LCEL 链，而是通过 `src/workflow/prompts.py` 中的 `build_generate_messages()` 构建消息列表后直接调用 `llm.invoke(messages)`。记忆管理作为独立 memory 节点操作 `state["messages"]`，处理后的消息自然流入 generate_node 的 `chat_history`。
-
 ### 涉及文件
-- `src/memory/conversation.py`
-- `src/memory/summary.py`
+- `src/memory/conversation.py`（未创建）
+- `src/memory/summary.py`（未创建）
 - `src/workflow/nodes.py`（新增 memory 节点函数）
 - `src/workflow/builder.py`（图拓扑加入 memory 节点）
 - `tests/test_workflow_nodes.py`（新增 memory 节点测试）
@@ -22,7 +20,6 @@
 
 ### 生产级注意事项
 - **memory 节点契约**：memory 节点必须保留至少最近 1 条 HumanMessage（当前轮次的问题），否则 generate_node 的 `chat_history` 会丢失当前上下文。Trim 策略应保留至少最后 2-4 条消息（含当前轮）。
-- **`chat_history` 的精确语义**：`build_generate_messages` 的 `chat_history` 参数接收 `state["messages"][:-1]`（排除当前轮的原始 HumanMessage）。因为当前轮的问题已通过 `question` 参数配合 `context` 格式化为新的 HumanMessage，`state["messages"][-1]` 中的原始版本不应重复出现。
 - **摘要降级策略**：`summarize_conversation` 调用 LLM 失败时，回退到 `trim_conversation_history`（丢弃最早的消息而非抛异常）。
 - **Token 计数准确性**：使用 `tiktoken` 精确计算消息列表的 token 数，而非简单按字符估算，因为中文和代码块的 token 消耗差异巨大。
 - **摘要函数的幂等性**：摘要生成应缓存结果，避免相同对话历史被重复摘要（增加成本和延迟）。

@@ -23,7 +23,6 @@ from langgraph.graph.state import CompiledStateGraph
 
 from src.core.factories import create_llm, create_retriever
 from src.core.settings import Settings
-from src.generation.prompts import PromptVersion, get_prompt
 from src.workflow.edges import route_after_classification
 from src.workflow.nodes import create_workflow_nodes
 from src.workflow.state import GraphState
@@ -124,13 +123,13 @@ def build_graph(
     # 第1步：通过 factories 创建依赖
     retriever = create_retriever(settings)
     llm = create_llm(settings.llm_provider, settings)
-    prompt = get_prompt(PromptVersion.V2, include_few_shot=True)
 
     # 第2步：通过 create_workflow_nodes 创建节点函数
+    #   不再传入 prompt——generate_node 通过 src/workflow/prompts.py 中的
+    #   build_generate_messages() 自管理模板，与 generation 路径完全解耦。
     nodes = create_workflow_nodes(
         retriever=retriever,
         llm=llm,
-        prompt=prompt,
         max_iterations=settings.max_iterations,
     )
 

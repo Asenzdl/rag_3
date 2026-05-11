@@ -51,8 +51,7 @@ def _build_graph_with_mocks():
     mock_llm = MagicMock()
 
     with patch("src.workflow.builder.create_retriever", return_value=MagicMock()), \
-         patch("src.workflow.builder.create_llm", return_value=mock_llm), \
-         patch("src.workflow.builder.get_prompt", return_value=MagicMock()):
+         patch("src.workflow.builder.create_llm", return_value=mock_llm):
         settings = Settings(
             deepseek_api_key="test-key",
             qwen_api_key="test-key",

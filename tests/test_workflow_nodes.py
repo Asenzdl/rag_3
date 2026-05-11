@@ -29,9 +29,10 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+
 from langchain_core.prompts import ChatPromptTemplate
 
-from src.generation.exceptions import CitationExtractionError
+from src.workflow.citation import CitationExtractionError
 from src.retriever.base_retriever import RetrievalError
 from src.workflow.nodes import (
     EMPTY_RETRIEVAL_RESPONSE,
@@ -132,15 +133,6 @@ def mock_retriever():
         ),
     ]
     return retriever
-
-
-@pytest.fixture
-def mock_prompt():
-    """简单 ChatPromptTemplate。"""
-    return ChatPromptTemplate.from_messages([
-        ("system", "你是助手"),
-        ("human", "{context}\n\n问题：{question}"),
-    ])
 
 
 @pytest.fixture
@@ -273,19 +265,19 @@ class TestClassifyIntent:
 class TestCreateWorkflowNodes:
     """工作流节点工厂函数测试。"""
 
-    def test_factory_returns_three_nodes(self, mock_retriever, mock_prompt):
+    def test_factory_returns_three_nodes(self, mock_retriever):
         """工厂函数应返回包含三个节点函数的字典。"""
         llm = FakeChatModel(response_content="retrieve")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         assert "route" in nodes
         assert "retrieve" in nodes
         assert "generate" in nodes
         assert len(nodes) == 3
 
-    def test_node_functions_are_callable(self, mock_retriever, mock_prompt):
+    def test_node_functions_are_callable(self, mock_retriever):
         """每个节点函数都应可调用。"""
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         for name, func in nodes.items():
             assert callable(func), f"节点 {name} 不是可调用对象"
 
@@ -294,11 +286,11 @@ class TestRouteNode:
     """路由节点测试。"""
 
     def test_route_node_returns_question_and_decision(
-        self, mock_retriever, mock_prompt, initial_state,
+        self, mock_retriever, initial_state,
     ):
         """路由节点应返回 question + route_decision。"""
         llm = FakeChatModel(response_content="retrieve")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         result = nodes["route"](initial_state)
 
         assert "question" in result
@@ -307,11 +299,11 @@ class TestRouteNode:
         assert result["route_decision"] == RETRIEVE
 
     def test_route_node_greeting(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """问候问题 → route_decision=greeting。"""
         llm = FakeChatModel(response_content="greeting")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="你好")],
             question="",
@@ -325,11 +317,11 @@ class TestRouteNode:
         assert result["question"] == "你好"
 
     def test_route_node_fallback(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """无关问题 → route_decision=fallback。"""
         llm = FakeChatModel(response_content="fallback")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="今天天气怎么样")],
             question="",
@@ -342,11 +334,11 @@ class TestRouteNode:
         assert result["route_decision"] == FALLBACK
 
     def test_route_node_no_human_message(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """messages 中无 HumanMessage → question=""。"""
         llm = FakeChatModel(response_content="fallback")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[AIMessage(content="系统消息")],
             question="",
@@ -359,11 +351,11 @@ class TestRouteNode:
         assert result["question"] == ""
 
     def test_route_node_extracts_latest_human_message(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """多轮对话 → 提取最后一条 HumanMessage。"""
         llm = FakeChatModel(response_content="retrieve")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[
                 HumanMessage(content="第一个问题"),
@@ -379,10 +371,10 @@ class TestRouteNode:
 
         assert result["question"] == "第二个问题"
 
-    def test_route_node_greeting_multiple_forms(self, mock_retriever, mock_prompt):
+    def test_route_node_greeting_multiple_forms(self, mock_retriever):
         """问候语变体 → route_decision=greeting。"""
         llm = FakeChatModel(response_content="greeting")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="早上好")],
             question="",
@@ -393,10 +385,10 @@ class TestRouteNode:
         result = nodes["route"](state)
         assert result["route_decision"] == GREETING
 
-    def test_route_node_knowledge_base_question(self, mock_retriever, mock_prompt):
+    def test_route_node_knowledge_base_question(self, mock_retriever):
         """知识库变体问题 → route_decision=retrieve。"""
         llm = FakeChatModel(response_content="retrieve")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="什么是 TypeScript？")],
             question="",
@@ -412,11 +404,11 @@ class TestRetrieveNode:
     """检索节点测试。"""
 
     def test_retrieve_node_normal(
-        self, mock_retriever, mock_prompt, state_with_documents,
+        self, mock_retriever, state_with_documents,
     ):
         """正常检索 → documents 非空。"""
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         result = nodes["retrieve"](state_with_documents)
 
         assert "documents" in result
@@ -424,22 +416,22 @@ class TestRetrieveNode:
         assert result["documents"][0].metadata.get("source") == "https://example.com/langgraph"
 
     def test_retrieve_node_returns_documents_only(
-        self, mock_retriever, mock_prompt, state_with_documents,
+        self, mock_retriever, state_with_documents,
     ):
         """检索节点只返回 documents，不修改其他字段。"""
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         result = nodes["retrieve"](state_with_documents)
 
         assert set(result.keys()) == {"documents"}
 
-    def test_retrieve_node_retrieval_error(self, mock_prompt):
+    def test_retrieve_node_retrieval_error(self):
         """RetrievalError → documents=[]。"""
         mock_retriever = MagicMock()
         mock_retriever.invoke.side_effect = RetrievalError("连接超时")
 
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="测试")],
             question="测试问题",
@@ -451,13 +443,13 @@ class TestRetrieveNode:
 
         assert result["documents"] == []
 
-    def test_retrieve_node_unexpected_exception(self, mock_prompt):
+    def test_retrieve_node_unexpected_exception(self):
         """未预期异常 → documents=[]。"""
         mock_retriever = MagicMock()
         mock_retriever.invoke.side_effect = RuntimeError("未知错误")
 
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="测试")],
             question="测试问题",
@@ -470,11 +462,11 @@ class TestRetrieveNode:
         assert result["documents"] == []
 
     def test_retrieve_node_uses_question(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """检索节点应使用 state["question"] 调用 retriever。"""
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="测试")],
             question="LangGraph 是什么？",
@@ -486,15 +478,13 @@ class TestRetrieveNode:
 
         mock_retriever.invoke.assert_called_once_with("LangGraph 是什么？")
 
-    def test_retrieve_node_empty_question(
-        self, mock_prompt,
-    ):
+    def test_retrieve_node_empty_question(self):
         """空 question → retriever 被调用但返回空。"""
         mock_retriever = MagicMock()
         mock_retriever.invoke.return_value = []
 
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="测试")],
             question="",
@@ -512,11 +502,11 @@ class TestGenerateNode:
     """生成节点测试。"""
 
     def test_generate_node_normal(
-        self, mock_retriever, mock_prompt, state_with_documents,
+        self, mock_retriever, state_with_documents,
     ):
         """正常生成 → messages 含 AIMessage + iteration_count 递增。"""
         llm = FakeChatModel(response_content="LangGraph 是一个框架")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         result = nodes["generate"](state_with_documents)
 
         assert "messages" in result
@@ -527,11 +517,11 @@ class TestGenerateNode:
         assert result["iteration_count"] == 1
 
     def test_generate_node_empty_documents(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """空文档 → 返回空检索预设回复 + iteration_count 递增。"""
         llm = FakeChatModel()
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         state = GraphState(
             messages=[HumanMessage(content="测试")],
             question="测试问题",
@@ -545,22 +535,22 @@ class TestGenerateNode:
         assert result["iteration_count"] == 1
 
     def test_generate_node_llm_failure(
-        self, mock_retriever, mock_prompt, state_with_documents,
+        self, mock_retriever, state_with_documents,
     ):
         """LLM 调用异常 → 返回错误回复 + iteration_count 递增。"""
         llm = FailingChatModel(error=RuntimeError("API timeout"))
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         result = nodes["generate"](state_with_documents)
 
         assert result["messages"][0].content == GENERATION_ERROR_RESPONSE
         assert result["iteration_count"] == 1
 
     def test_generate_node_iteration_count_increments(
-        self, mock_retriever, mock_prompt, state_with_documents,
+        self, mock_retriever, state_with_documents,
     ):
         """每次调用 generate_node，iteration_count 应 +1。"""
         llm = FakeChatModel(response_content="回答")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
 
         # 第一次调用
         result1 = nodes["generate"](state_with_documents)
@@ -572,17 +562,17 @@ class TestGenerateNode:
         assert result2["iteration_count"] == 2
 
     def test_generate_node_returns_messages_and_count_only(
-        self, mock_retriever, mock_prompt, state_with_documents,
+        self, mock_retriever, state_with_documents,
     ):
         """生成节点只返回 messages 和 iteration_count。"""
         llm = FakeChatModel(response_content="回答")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
         result = nodes["generate"](state_with_documents)
 
         assert set(result.keys()) == {"messages", "iteration_count"}
 
     def test_generate_node_citation_extraction_error(
-        self, mock_retriever, mock_prompt, state_with_documents,
+        self, mock_retriever, state_with_documents,
     ):
         """引用提取失败 → 不影响生成结果和 iteration_count。"""
         llm = FakeChatModel(response_content="正常回答")
@@ -590,7 +580,7 @@ class TestGenerateNode:
         failing_extractor.extract.side_effect = CitationExtractionError("提取失败")
 
         nodes = create_workflow_nodes(
-            mock_retriever, llm, mock_prompt,
+            mock_retriever, llm,
             citation_extractor=failing_extractor,
         )
         result = nodes["generate"](state_with_documents)
@@ -607,11 +597,11 @@ class TestNodeCollaboration:
     """节点协作测试 — 验证 route → retrieve → generate 的数据流。"""
 
     def test_full_pipeline_route_then_retrieve(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """route_node 输出 → retrieve_node 输入 的数据流正确。"""
         llm = FakeChatModel(response_content="retrieve")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
 
         # 初始状态
         initial = GraphState(
@@ -633,11 +623,11 @@ class TestNodeCollaboration:
         assert len(retrieve_result["documents"]) == 2
 
     def test_full_pipeline_all_three_nodes(
-        self, mock_retriever, mock_prompt,
+        self, mock_retriever,
     ):
         """route → retrieve → generate 完整流程。"""
         llm = FakeChatModel(response_content="LangGraph 是一个框架")
-        nodes = create_workflow_nodes(mock_retriever, llm, mock_prompt)
+        nodes = create_workflow_nodes(mock_retriever, llm)
 
         initial = GraphState(
             messages=[HumanMessage(content="LangGraph 是什么？")],
