@@ -429,10 +429,7 @@ class CitationExtractor:
         """
         return url in sources_set
 
-
 __all__ = [
-    "Citation",
-    "CitationExtractionError",
     "CitationExtractor",
-    "ValidatedCitation",
+    "CitationExtractionError",
 ]

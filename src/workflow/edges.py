@@ -7,7 +7,7 @@
 为什么路由函数独立为模块（设计决策）：
     1. 可测试性：路由函数是纯函数（state -> str），可独立测试
     2. 职责单一：edges.py 负责"路径选择"，builder.py 负责"图组装"
-    3. 可替换性：Task 2.6 自适应路由可替换路由函数，图结构无需修改
+    3. 可替换性：Task 2.6 自适应路由可替换路由函数
 """
 
 import structlog
@@ -65,7 +65,6 @@ def route_after_classification(state: GraphState) -> str:
         route_decision=decision,
     )
     return FALLBACK
-
 
 __all__ = [
     "route_after_classification",

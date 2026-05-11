@@ -240,7 +240,7 @@ def unbind_request_id() -> None:
     structlog.contextvars.clear_contextvars()
 
 __all__ = [
-    "bind_request_id",
     "setup_logging",
+    "bind_request_id",
     "unbind_request_id",
 ]

@@ -1,78 +1,71 @@
-# 项目上下文索引（AI 专用）
+# 项目索引文档
 
-> ⚠️ 定位 文件/类/函数/配置时，先查本文件再操作，禁止盲目搜索（见 CLAUDE.md「定位优先规则」）
-> 用途：AI 会话启动时一次性读取，提供精准定位信息，避免探索式搜索
-> 单会话只会完成一个 Task，且会严格更新此文件，请信任此文件的定位信息
+> 用途：提供精准定位信息，避免探索式搜索
+> 单会话只会完成一个 Task，且会用脚本严格更新此文件，请信任此文件的定位信息
 > **按需加载**
 
 ---
 
 ## 📦 核心模块定位表
 
-一行定位：文件 → 公共 API：C:类/F:函数/R:Re-export → 职责
-模块独立性声明：`src/ingestion`（数据预处理管道） 和 `src/evaluation`（检索评估工具） 是离线工具，通常无需关注，要访问时需发起人工申请，并附带理由
+一行定位：文件 → 公共 API：C:类/F:函数/R:Re-export/V:变量常量
+- 通常无须关注的模块
+  - `src/ingestion`：数据预处理管道；离线工具
+  - `src/evaluation`：检索评估工具；离线工具
+  - `src/generation/`：RAG Chain 生成层核心 API；phase1为独立阶段
 
 ### `src/`
 
 > CLI 应用入口 + 启动脚本
 
-| 文件 | 公共 API | 职责概要 |
-| :--- |:--- | :--- |
-| `src/app.py` | — | CLI 交互入口：应用入口 + REPL 问答 + 会话状态管理。 |
-| `src/run.py` | `F:main` | 启动脚本：程序启动入口。 |
+| 文件 | 公共 API |
+| :--- | :--- |
+| `src/app.py` | — |
+| `src/run.py` | `R:main` |
 
 ### `src/core/`
 
 > core 包 — 核心基础设施：配置管理、工厂函数、异常体系。
 
-| 文件 | 公共 API | 职责概要 |
-| :--- | :--- | :--- |
-| `src/core/config.py` | `F:settings` | 配置入口门面 — 加载环境变量 + 导出 Settings 单例。 |
-| `src/core/exceptions.py` | `C:NonRetryableError` `C:RAGSystemError` `C:RetryableError` | RAG 系统统一异常体系。 |
-| `src/core/factories.py` | `F:create_embeddings` `F:create_llm` `F:create_rag_chain` `F:create_retriever` `F:create_vectorstore` | 工厂函数模块 — 配置驱动的对象创建。 |
-| `src/core/settings.py` | `C:Settings` | 12-Factor App 配置管理 — Pydantic BaseSettings 实现。 |
-
-### `src/generation/`
-
-> generation 包 — RAG Chain 生成层核心 API。
-
-| 文件 | 公共 API | 职责概要 |
-| :--- | :--- | :--- |
-| `src/generation/citation_chain.py` | `C:Citation` `C:CitationExtractor` `C:ValidatedCitation` | 引用提取与验证模块。 |
-| `src/generation/exceptions.py` | `C:CitationExtractionError` `C:EmptyRetrievalError` `C:GenerationError` `C:LLMCallError` | 生成模块异常定义。 |
-| `src/generation/prompts.py` | `C:PromptVersion` `F:get_prompt` | Prompt 模板定义与版本管理模块。 |
-| `src/generation/rag_chain.py` | `C:RAGChain` `C:RAGResponse` `F:format_docs` | RAG 问答链模块：LCEL 组合 + 空检索拦截 + 流式支持。 |
+| 文件 | 公共 API |
+| :--- | :--- |
+| `src/core/config.py` | `V:settings` |
+| `src/core/exceptions.py` | `C:NonRetryableError` `C:RAGSystemError` `C:RetryableError` |
+| `src/core/factories.py` | `F:create_embeddings` `F:create_llm` `F:create_rag_chain` `F:create_retriever` `F:create_vectorstore` |
+| `src/core/settings.py` | `C:Settings` |
 
 ### `src/retriever/`
 
 > retriever 包 — 检索层核心 API。
 
-| 文件 | 公共 API | 职责概要 |
-| :--- | :--- | :--- |
-| `src/retriever/base_retriever.py` | `C:RetrievalError` `C:UnsupportedSearchTypeError` `C:VectorRetriever` | 基础向量检索器：封装 Chroma 向量检索器。 |
-| `src/retriever/protocols.py` | `C:RetrieverProtocol` | 检索器协议定义 — 结构子类型（Structural Subtyping）。 |
+| 文件 | 公共 API |
+| :--- | :--- |
+| `src/retriever/base_retriever.py` | `C:RetrievalError` `C:UnsupportedSearchTypeError` `C:VectorRetriever` |
+| `src/retriever/protocols.py` | `C:RetrieverProtocol` |
 
 ### `src/utils/`
 
 > utils 包 — 基础设施工具模块。
 
-| 文件 | 公共 API | 职责概要 |
-| :--- | :--- | :--- |
-| `src/utils/logger.py` | `F:bind_request_id` `F:setup_logging` `F:unbind_request_id` | 结构化日志配置模块。 |
-| `src/utils/retry.py` | `R:NonRetryableError` `R:RetryableError` `F:create_llm_retry_decorator` `F:with_retry` | LLM 调用重试机制。 |
+| 文件 | 公共 API |
+| :--- | :--- |
+| `src/utils/logger.py` | `F:setup_logging` `F:bind_request_id` `F:unbind_request_id` |
+| `src/utils/retry.py` | `R:RetryableError` `R:NonRetryableError` `F:create_llm_retry_decorator` `F:with_retry` |
 
 ### `src/workflow/`
 
-> workflow 包 — LangGraph 工作流定义：状态、节点、图构建、检查点持久化。
+> workflow 包 — LangGraph 工作流定义。
 
-| 文件 | 公共 API | 职责概要 |
-| :--- |:--- | :--- |
-| `src/workflow/state.py` | `C:GraphState` | LangGraph 工作流全局状态定义（TypedDict + Annotated + add_messages reducer）。 |
-| `src/workflow/nodes.py` | `F:create_workflow_nodes` | LangGraph 节点工厂：闭包注入依赖，返回 route/retrieve/generate 节点字典。 |
-| `src/workflow/routing.py` | `F:classify_intent` `F:create_route_prompt` `V:RETRIEVE/GREETING/FALLBACK` | 路由逻辑：意图分类 Prompt + LLM 分类函数 + 路由标签常量。 |
-| `src/workflow/builder.py` | `F:build_graph` `V:GREETING_RESPONSE/FALLBACK_RESPONSE` | 图构建：Settings 驱动组装 StateGraph + 可选 checkpointer + 简单终端节点（greeting/fallback）。 |
-| `src/workflow/edges.py` | `F:route_after_classification` | 条件边路由函数：route 节点后，根据 route_decision 决定下一跳。 |
-| `src/workflow/checkpointer.py` | `F:create_checkpointer` | 检查点持久化工厂：上下文管理器模式封装 SqliteSaver + setup() + 目录自动创建。 |
+| 文件 | 公共 API |
+| :--- | :--- |
+| `src/workflow/builder.py` | `F:build_graph` |
+| `src/workflow/checkpointer.py` | `F:create_checkpointer` |
+| `src/workflow/citation.py` | `C:CitationExtractor` `C:CitationExtractionError` |
+| `src/workflow/edges.py` | `F:route_after_classification` |
+| `src/workflow/nodes.py` | `F:create_workflow_nodes` |
+| `src/workflow/prompts.py` | `F:build_generate_messages` `F:format_docs` |
+| `src/workflow/routing.py` | `V:FALLBACK` `V:GREETING` `V:RETRIEVE` `F:classify_intent` |
+| `src/workflow/state.py` | `C:GraphState` |
 
 
 ## 🔗 路径映射

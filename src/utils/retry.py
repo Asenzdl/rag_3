@@ -244,8 +244,8 @@ def with_retry(
     return decorator(func)
 
 __all__ = [
-    "NonRetryableError",
     "RetryableError",
+    "NonRetryableError",
     "create_llm_retry_decorator",
     "with_retry",
 ]

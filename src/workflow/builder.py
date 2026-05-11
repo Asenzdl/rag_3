@@ -169,9 +169,6 @@ def build_graph(
 
     return compiled
 
-
 __all__ = [
-    "FALLBACK_RESPONSE",
-    "GREETING_RESPONSE",
     "build_graph",
 ]

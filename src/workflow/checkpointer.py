@@ -113,7 +113,6 @@ def create_checkpointer(settings: Settings) -> Iterator[BaseCheckpointSaver]:
         #   with 块退出时，from_conn_string 自动关闭 sqlite3 连接
         yield checkpointer
 
-
 __all__ = [
     "create_checkpointer",
 ]

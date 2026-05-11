@@ -139,7 +139,6 @@ class GraphState(TypedDict):
         若后续需要强约束（如拼写错误防护），可升级为 Literal 类型。
     """
 
-
 __all__ = [
     "GraphState",
 ]

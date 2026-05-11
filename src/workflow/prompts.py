@@ -1,10 +1,6 @@
 """Workflow 路径的 Prompt 模板与消息构建模块。
 
-本模块是 Workflow（LangGraph）自有的模板管理，与 src/generation/prompts.py
-（RAGChain/LCEL 路径）完全独立。两路径初始模板字符串相同，后续可独立演进。
-
 设计意图：
-1. **零耦合**：Workflow 不导入任何 src.generation.*，自有完整模板集
 2. **消息构建**：build_generate_messages 替代 LCEL 的 prompt | llm chain，
    直接构建 list[BaseMessage] 后调用 llm.invoke(messages)
 3. **版本管理**：通过 PromptVersion 枚举 + PROMPT_REGISTRY 管理多版本
@@ -270,11 +266,7 @@ def build_generate_messages(
 
     return messages
 
-
 __all__ = [
-    "FEW_SHOT_EXAMPLES",
-    "PROMPT_REGISTRY",
-    "PromptVersion",
     "build_generate_messages",
     "format_docs",
 ]

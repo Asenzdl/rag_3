@@ -22,13 +22,19 @@ from typing import List, Optional
 # 配置区：模块输出顺序控制
 # ============================================================
 
+# 全局开关：是否显示“职责概要”列
+# True  → 表格包含职责概要列（需维护 api_summaries.yaml 或 docstring）
+# False → 表格仅显示“文件 | 公共 API”两列（推荐，零维护）
+SHOW_SUMMARY_COLUMN = False
+
 # 模块输出顺序（留空则按字母顺序，设为 None 则跳过该模块）
 MODULE_ORDER = [
     "src",           # src/ 根目录（app.py / run.py）
     "core",           # 核心基础设施
-    "generation",     # 生成层
+    # "generation",     # 生成层
     "retriever",      # 检索层
     "utils",          # 工具模块
+    "workflow",       # LangGraph 工作流
     # 离线模块（跳过，不输出）
     # "ingestion",    # 取消注释可启用
     # "evaluation",   # 取消注释可启用
@@ -43,11 +49,14 @@ FORCE_INDEX_FILES = {
     "run.py",     # 程序启动入口
 }
 
-# 标题说明段落配置（按顺序排列，每段一个字符串）
+# 标题说明段落配置（按顺序排列,每段一个字符串）
 # 这些段落会插入到 "## 📦 核心模块定位表" 和第一个 "###" 之间
 HEADER_SECTIONS = [
-    "一行定位：文件 → 公共 API：C:类/F:函数 → 职责",
-    "模块独立性声明：`src/ingestion`（数据预处理管道） 和 `src/evaluation`（检索评估工具） 是离线工具，通常无需关注，要访问时需发起人工申请，并附带理由",
+    "一行定位：文件 → 公共 API：C:类/F:函数/R:Re-export/V:变量常量",
+    "- 通常无须关注的模块\n"
+    "  - `src/ingestion`：数据预处理管道；离线工具\n"
+    "  - `src/evaluation`：检索评估工具；离线工具\n"
+    "  - `src/generation/`：RAG Chain 生成层核心 API；phase1为独立阶段"
     # 可在此处添加更多段落，例如：
     # "使用说明：...",
     # "注意事项：...",
@@ -67,8 +76,8 @@ MODULE_DESCRIPTIONS = {
 
 # 文件类型映射（根据文件名推断角色，键为文件名）
 FILE_TYPE_MAP = {
-    "app.py": "应用入口",
-    "run.py": "启动脚本",
+    "app.py": "CLI 交互入口：应用入口 + REPL 问答 + 会话状态管理",
+    "run.py": "启动脚本：程序启动入口",
 }
 
 # ============================================================
@@ -112,33 +121,47 @@ def extract_all_from_file(file_path: Path) -> list[str]:
 def get_file_summary(file_path: Path) -> str:
     """从 Python 文件的文档字符串提取职责概要。
     
+    优先级：
+        1. 从 api_summaries.yaml 配置文件读取（高质量人工维护）
+        2. 从 docstring 第一行提取（自动生成）
+        3. 使用 DEFAULT_SUMMARIES 配置的默认值
+        4. 返回 "N/A"
+    
     Args:
         file_path: .py 文件路径
         
     Returns:
-        文档字符串第一行（职责概要）
+        职责概要字符串
     """
-    if not file_path.exists():
-        return "N/A"
+    # 优先级1：从配置文件读取
+    PROJECT_ROOT = Path(__file__).parent.parent
+    rel_path = file_path.relative_to(PROJECT_ROOT).as_posix()
+    config = load_summaries_config()
     
-    try:
-        content = file_path.read_text(encoding="utf-8")
-        tree = ast.parse(content)
-        doc = ast.get_docstring(tree)
-        if doc:
-            # 返回第一行非空内容
-            for line in doc.split('\n'):
-                line = line.strip()
-                if line:
-                    return line
-    except Exception:
-        pass
+    if rel_path in config:
+        return config[rel_path]
     
-    # 无文档字符串时，使用配置的默认摘要
+    # 优先级2：从 docstring 提取
+    if file_path.exists():
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(content)
+            doc = ast.get_docstring(tree)
+            if doc:
+                # 返回第一行非空内容
+                for line in doc.split('\n'):
+                    line = line.strip()
+                    if line:
+                        return line
+        except Exception:
+            pass
+    
+    # 优先级3：使用配置的默认摘要
     filename = file_path.name
     if filename in DEFAULT_SUMMARIES:
         return DEFAULT_SUMMARIES[filename]
     
+    # 优先级4：返回 N/A
     return "N/A"
 
 
@@ -202,27 +225,57 @@ def infer_file_type(file_path: Path) -> str:
 
 
 def infer_symbol_type(file_path: Path, symbol_name: str) -> str:
-    """推断符号类型（C:类 / F:函数）。
+    """推断符号类型（C:类 / F:函数 / R:Re-export / V:变量常量）。
+    
+    判断优先级：
+        1. 本文件定义的类 → C
+        2. 本文件定义的函数 → F
+        3. 本文件定义的变量/常量 → V
+        4. 从其他模块导入后 re-export → R
+        5. 回退：根据命名约定推断
     
     Args:
         file_path: .py 文件路径
         symbol_name: 符号名称
         
     Returns:
-        "C" 或 "F"
+        "C"（类）、"F"（函数）、"R"（重新导出）或 "V"（变量/常量）
     """
     try:
         content = file_path.read_text(encoding="utf-8")
         tree = ast.parse(content)
+        
+        # 收集所有导入的符号名（含别名）
+        imported_symbols = set()
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    # import X as Y → 记录 Y（别名）或 X（原始名）
+                    imported_symbols.add(alias.asname or alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported_symbols.add(alias.asname or alias.name)
+        
+        # 优先级1-3：检查本文件定义
         for node in tree.body:
             if isinstance(node, ast.ClassDef) and node.name == symbol_name:
                 return "C"
             elif isinstance(node, ast.FunctionDef) and node.name == symbol_name:
                 return "F"
+            elif isinstance(node, ast.Assign):
+                # 检查变量/常量赋值（如 RETRIEVE = "retrieve"）
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == symbol_name:
+                        return "V"
+        
+        # 优先级4：检查是否是 Re-export
+        if symbol_name in imported_symbols:
+            return "R"
+    
     except Exception:
         pass
     
-    # 回退策略：根据命名约定推断
+    # 优先级5：回退策略：根据命名约定推断
     if symbol_name[0].isupper() and '_' not in symbol_name:
         return "C"
     else:
@@ -237,7 +290,7 @@ def format_api_symbols(file_path: Path, api_names: list[str]) -> str:
         api_names: 公共 API 名称列表
         
     Returns:
-        格式化字符串，如 "`C:Settings` `F:create_rag_chain`"
+        格式化字符串，如 "`C:Settings` `F:create_rag_chain` `R:RetryableError`"
     """
     if not api_names:
         return ""
@@ -299,33 +352,38 @@ def generate_index_content() -> str:
                     lines.append(f"> {MODULE_DESCRIPTIONS['src/']}")
                     lines.append("")  # 描述后空行
                 
-                lines.append("| 文件 | 类型 | 公共 API | 职责概要 |")
-                lines.append("| :--- | :--- | :--- | :--- |")
-                
+                # 根据开关动态决定表头
+                if SHOW_SUMMARY_COLUMN:
+                    lines.append("| 文件 | 公共 API | 职责概要 |")
+                    lines.append("| :--- | :--- | :--- |")
+                else:
+                    lines.append("| 文件 | 公共 API |")
+                    lines.append("| :--- | :--- |")
+                                
                 for src_file in src_files:
                     public_apis = extract_all_from_file(src_file)
-                    
+                                    
                     # 检查是否在强制索引白名单中
                     is_force_index = src_file.name in FORCE_INDEX_FILES
-                    
+                                    
                     # 如果没有 __all__ 且不在白名单中，跳过
                     if not public_apis and not is_force_index:
                         continue
-                    
-                    # 推断文件类型
-                    file_type = infer_file_type(src_file)
-                    
-                    summary = get_file_summary(src_file)
-                    
+                                    
                     # 生成 API 字符串（白名单文件可能没有 __all__）
                     if public_apis:
                         api_str = format_api_symbols(src_file, public_apis)
                     else:
-                        api_str = "—"  # 表示“不适用”
-                    
+                        api_str = "—"  # 表示"不适用"
+                                    
                     rel_path = src_file.relative_to(PROJECT_ROOT).as_posix()
-                    
-                    lines.append(f"| `{rel_path}` | {file_type} | {api_str} | {summary} |")
+                                    
+                    # 根据开关动态生成行
+                    if SHOW_SUMMARY_COLUMN:
+                        summary = get_file_summary(src_file)
+                        lines.append(f"| `{rel_path}` | {api_str} | {summary} |")
+                    else:
+                        lines.append(f"| `{rel_path}` | {api_str} |")
                     print(f"✅ {rel_path}: {len(public_apis)} 个公共 API")
                     files_processed += 1
                 
@@ -362,8 +420,14 @@ def generate_index_content() -> str:
         if module_desc:
             lines.append(f"> {module_desc}")
             lines.append("")  # 描述后空行
-        lines.append("| 文件 | 公共 API | 职责概要 |")
-        lines.append("| :--- | :--- | :--- |")
+        
+        # 根据开关动态决定表头
+        if SHOW_SUMMARY_COLUMN:
+            lines.append("| 文件 | 公共 API | 职责概要 |")
+            lines.append("| :--- | :--- | :--- |")
+        else:
+            lines.append("| 文件 | 公共 API |")
+            lines.append("| :--- | :--- |")
         
         module_has_files = False
         for py_file in py_files:
@@ -372,17 +436,18 @@ def generate_index_content() -> str:
             if not public_apis:
                 continue  # 跳过没有 __all__ 的文件
             
-            # 提取职责概要
-            summary = get_file_summary(py_file)
-            
             # 格式化符号
             api_str = format_api_symbols(py_file, public_apis)
             
             # 生成相对路径
             rel_path = py_file.relative_to(PROJECT_ROOT).as_posix()
             
-            # 添加到表格
-            lines.append(f"| `{rel_path}` | {api_str} | {summary} |")
+            # 根据开关动态生成行
+            if SHOW_SUMMARY_COLUMN:
+                summary = get_file_summary(py_file)
+                lines.append(f"| `{rel_path}` | {api_str} | {summary} |")
+            else:
+                lines.append(f"| `{rel_path}` | {api_str} |")
             module_has_files = True
             files_processed += 1
         
