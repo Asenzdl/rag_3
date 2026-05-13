@@ -24,4 +24,3 @@ venv/
 .pytest_cache/
 think/
 docs/
-re_construct/

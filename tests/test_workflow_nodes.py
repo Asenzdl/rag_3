@@ -49,6 +49,9 @@ from src.workflow.routing import (
 )
 from src.workflow.state import GraphState
 
+from langgraph.runtime import Runtime
+from src.workflow.state import GraphContext
+
 
 # ============================================================
 # FakeChatModel — 替代 MagicMock，满足 LCEL Runnable 协议
@@ -163,6 +166,12 @@ def state_with_documents():
         iteration_count=0,
         route_decision="retrieve",
     )
+
+
+@pytest.fixture
+def default_runtime():
+    """默认 Runtime — 用于 generate_node 测试。"""
+    return Runtime(context=GraphContext(max_iterations=3))
 
 
 # ============================================================
@@ -404,7 +413,7 @@ class TestRetrieveNode:
     """检索节点测试。"""
 
     def test_retrieve_node_normal(
-        self, mock_retriever, state_with_documents,
+        self, mock_retriever, state_with_documents, default_runtime,
     ):
         """正常检索 → documents 非空。"""
         llm = FakeChatModel()
@@ -416,7 +425,7 @@ class TestRetrieveNode:
         assert result["documents"][0].metadata.get("source") == "https://example.com/langgraph"
 
     def test_retrieve_node_returns_documents_only(
-        self, mock_retriever, state_with_documents,
+        self, mock_retriever, state_with_documents, default_runtime,
     ):
         """检索节点只返回 documents，不修改其他字段。"""
         llm = FakeChatModel()
@@ -502,12 +511,12 @@ class TestGenerateNode:
     """生成节点测试。"""
 
     def test_generate_node_normal(
-        self, mock_retriever, state_with_documents,
+        self, mock_retriever, state_with_documents, default_runtime,
     ):
         """正常生成 → messages 含 AIMessage + iteration_count 递增。"""
         llm = FakeChatModel(response_content="LangGraph 是一个框架")
         nodes = create_workflow_nodes(mock_retriever, llm)
-        result = nodes["generate"](state_with_documents)
+        result = nodes["generate"](state_with_documents, default_runtime)
 
         assert "messages" in result
         assert "iteration_count" in result
@@ -517,7 +526,7 @@ class TestGenerateNode:
         assert result["iteration_count"] == 1
 
     def test_generate_node_empty_documents(
-        self, mock_retriever,
+        self, mock_retriever, default_runtime,
     ):
         """空文档 → 返回空检索预设回复 + iteration_count 递增。"""
         llm = FakeChatModel()
@@ -529,50 +538,50 @@ class TestGenerateNode:
             iteration_count=0,
             route_decision="retrieve",
         )
-        result = nodes["generate"](state)
+        result = nodes["generate"](state, default_runtime)
 
         assert result["messages"][0].content == EMPTY_RETRIEVAL_RESPONSE
         assert result["iteration_count"] == 1
 
     def test_generate_node_llm_failure(
-        self, mock_retriever, state_with_documents,
+        self, mock_retriever, state_with_documents, default_runtime,
     ):
         """LLM 调用异常 → 返回错误回复 + iteration_count 递增。"""
         llm = FailingChatModel(error=RuntimeError("API timeout"))
         nodes = create_workflow_nodes(mock_retriever, llm)
-        result = nodes["generate"](state_with_documents)
+        result = nodes["generate"](state_with_documents, default_runtime)
 
         assert result["messages"][0].content == GENERATION_ERROR_RESPONSE
         assert result["iteration_count"] == 1
 
     def test_generate_node_iteration_count_increments(
-        self, mock_retriever, state_with_documents,
+        self, mock_retriever, state_with_documents, default_runtime,
     ):
         """每次调用 generate_node，iteration_count 应 +1。"""
         llm = FakeChatModel(response_content="回答")
         nodes = create_workflow_nodes(mock_retriever, llm)
 
         # 第一次调用
-        result1 = nodes["generate"](state_with_documents)
+        result1 = nodes["generate"](state_with_documents, default_runtime)
         assert result1["iteration_count"] == 1
 
         # 模拟第二次调用（状态中 iteration_count 已更新为 1）
         state_with_documents["iteration_count"] = 1
-        result2 = nodes["generate"](state_with_documents)
+        result2 = nodes["generate"](state_with_documents, default_runtime)
         assert result2["iteration_count"] == 2
 
     def test_generate_node_returns_messages_and_count_only(
-        self, mock_retriever, state_with_documents,
+        self, mock_retriever, state_with_documents, default_runtime,
     ):
         """生成节点只返回 messages 和 iteration_count。"""
         llm = FakeChatModel(response_content="回答")
         nodes = create_workflow_nodes(mock_retriever, llm)
-        result = nodes["generate"](state_with_documents)
+        result = nodes["generate"](state_with_documents, default_runtime)
 
         assert set(result.keys()) == {"messages", "iteration_count"}
 
     def test_generate_node_citation_extraction_error(
-        self, mock_retriever, state_with_documents,
+        self, mock_retriever, state_with_documents, default_runtime,
     ):
         """引用提取失败 → 不影响生成结果和 iteration_count。"""
         llm = FakeChatModel(response_content="正常回答")
@@ -583,7 +592,7 @@ class TestGenerateNode:
             mock_retriever, llm,
             citation_extractor=failing_extractor,
         )
-        result = nodes["generate"](state_with_documents)
+        result = nodes["generate"](state_with_documents, default_runtime)
 
         assert result["messages"][0].content == "正常回答"
         assert result["iteration_count"] == 1
@@ -623,7 +632,7 @@ class TestNodeCollaboration:
         assert len(retrieve_result["documents"]) == 2
 
     def test_full_pipeline_all_three_nodes(
-        self, mock_retriever,
+        self, mock_retriever, default_runtime,
     ):
         """route → retrieve → generate 完整流程。"""
         llm = FakeChatModel(response_content="LangGraph 是一个框架")
@@ -644,7 +653,7 @@ class TestNodeCollaboration:
         retrieve_result = nodes["retrieve"](state_after_route)
         # generate
         state_after_retrieve = {**state_after_route, **retrieve_result}
-        generate_result = nodes["generate"](state_after_retrieve)
+        generate_result = nodes["generate"](state_after_retrieve, default_runtime)
 
         assert generate_result["iteration_count"] == 1
         assert len(generate_result["messages"]) == 1

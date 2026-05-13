@@ -47,6 +47,7 @@
         return {"documents": docs}  # 直接覆盖 documents
 """
 
+from dataclasses import dataclass
 from typing import Annotated
 
 from langchain_core.documents import Document
@@ -139,6 +140,17 @@ class GraphState(TypedDict):
         若后续需要强约束（如拼写错误防护），可升级为 Literal 类型。
     """
 
+@dataclass
+class GraphContext:
+    """LangGraph 运行时配置 — 每次 invoke 独立传入，不入检查点。
+
+    字段说明：
+        max_iterations: 工作流最大迭代次数（安全阀阈值，Task 2.6 条件边使用）
+    """
+    max_iterations: int = 3
+
+
 __all__ = [
     "GraphState",
+    "GraphContext",
 ]

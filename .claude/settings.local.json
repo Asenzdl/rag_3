@@ -16,7 +16,8 @@
       "Bash(/d/wjs/software/anaconda3/envs/langchain_v1.2/python -c ' *)",
       "Bash(curl -sL \"https://docs.langchain.com/oss/python/migrate/langgraph-v1\")",
       "Bash(curl -sL \"https://docs.langchain.com/oss/python/langgraph/changelog-py\")",
-      "Bash(/d/wjs/software/anaconda3/envs/langchain_v1.2/python *)"
+      "Bash(/d/wjs/software/anaconda3/envs/langchain_v1.2/python *)",
+      "mcp__mcp_Docs_by_LangChain__query_docs_filesystem_docs_by_lang_chain"
     ],
     "deny": [
       "NotebookEdit"

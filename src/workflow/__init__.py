@@ -20,10 +20,11 @@
 from .builder import build_graph
 from .checkpointer import create_checkpointer
 from .nodes import create_workflow_nodes
-from .state import GraphState
+from .state import GraphState, GraphContext
 
 __all__ = [
     "GraphState",
+    "GraphContext",
     "build_graph",
     "create_checkpointer",
     "create_workflow_nodes",

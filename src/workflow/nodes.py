@@ -28,6 +28,8 @@ from src.retriever.protocols import RetrieverProtocol
 from src.workflow.prompts import build_generate_messages, format_docs
 from src.workflow.routing import classify_intent
 from src.workflow.state import GraphState
+from langgraph.runtime import Runtime
+from .state import GraphContext
 
 logger = structlog.get_logger(__name__)
 
@@ -62,8 +64,7 @@ def create_workflow_nodes(
     retriever: RetrieverProtocol,
     llm: BaseChatModel,
     citation_extractor: CitationExtractor | None = None,
-    max_iterations: int = 3,
-) -> dict[str, Callable[[GraphState], dict]]:
+) -> dict[str, Callable[..., dict]]:
     """创建工作流节点函数（工厂函数，闭包模式注入依赖）。
 
     为什么用工厂闭包而非模块级导入（设计决策）：
@@ -73,7 +74,6 @@ def create_workflow_nodes(
         retriever: 检索器（满足 RetrieverProtocol 即可，可 Mock）
         llm: Chat 模型实例（路由和生成共用，可 Mock）
         citation_extractor: 引用提取器，默认创建正则策略实例
-        max_iterations: 最大迭代次数（安全阀阈值，默认 3）
 
     Returns:
         {"route": route_node, "retrieve": retrieve_node, "generate": generate_node}
@@ -89,11 +89,6 @@ def create_workflow_nodes(
     #   与 LangGraph 官方模式一致——LLM 的输入输出都是 messages，没有 dict 中间层。
     retryable_invoke = with_retry(
         lambda msgs: llm.invoke(msgs), max_attempts=3, min_wait=4, max_wait=10,
-    )
-
-    logger.info(
-        "工作流节点工厂初始化完成",
-        max_iterations=max_iterations,
     )
 
     # ============================================================
@@ -187,7 +182,7 @@ def create_workflow_nodes(
     # generate_node：LLM 生成回答 + 引用提取 + 迭代计数
     # ============================================================
 
-    def generate_node(state: GraphState) -> dict:
+    def generate_node(state: GraphState, runtime: Runtime[GraphContext]) -> dict:
         """生成节点：调用 LLM 生成回答 + 引用提取 + 迭代计数。
 
         为什么同时递增 iteration_count 和写 messages（设计决策）：
@@ -211,6 +206,7 @@ def create_workflow_nodes(
         question = state.get("question", "")
         documents = state.get("documents", [])
         current_count = state.get("iteration_count", 0)
+        max_iterations = runtime.context.max_iterations if runtime.context is not None else 3
 
         # 第2步：空检索拦截
         #   ├─ documents 为空 → 返回空检索预设回复 + 递增计数器

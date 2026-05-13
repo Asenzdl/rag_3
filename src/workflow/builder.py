@@ -25,7 +25,7 @@ from src.core.factories import create_llm, create_retriever
 from src.core.settings import Settings
 from src.workflow.edges import route_after_classification
 from src.workflow.nodes import create_workflow_nodes
-from src.workflow.state import GraphState
+from src.workflow.state import GraphState, GraphContext
 
 logger = structlog.get_logger(__name__)
 
@@ -130,11 +130,10 @@ def build_graph(
     nodes = create_workflow_nodes(
         retriever=retriever,
         llm=llm,
-        max_iterations=settings.max_iterations,
     )
 
     # 第3步：创建 StateGraph
-    graph = StateGraph(GraphState)
+    graph = StateGraph(GraphState, context_schema=GraphContext)
 
     # 第4步：添加节点
     # 先添加所有节点，再连接边——LangGraph 要求节点在边引用前已注册

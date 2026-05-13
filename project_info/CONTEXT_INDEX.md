@@ -105,7 +105,9 @@
 | 文件 | 内容 |
 |------|------|
 | `project_info/api_refs/langgraph_compiled_graph.md` | CompiledStateGraph 所有 public 方法签名 |
-| `project_info/api_refs/langgraph_v2_streaming.md` | LangGraph v2 streaming API 参考 
+| `project_info/api_refs/langgraph_v2_streaming.md` | LangGraph v2 streaming API 参考 |
+| `project_info/api_refs/langgraph_context_schema.md` | context_schema + Runtime 完整 API 与用例模式 |
+| `project_info/api_refs/langgraph_config_architecture.md` | 三层配置架构（Settings / context_schema / RunnableConfig）与决策矩阵 |
 
 ---
 
@@ -141,6 +143,8 @@ phase 2 大纲汇总：`.project\outline\phase_2_langgraph\phase 2_total_tasks.m
 | 2.2 | 核心节点实现（检索 → 生成 → 引用验证） |
 | 2.3 | 条件边与图构建（Conditional Edge） |
 | 2.4 | 检查点持久化（SQLite Checkpointer） |
+| 2.4b | Workflow Prompt 基底修正（纯函数替代 LCEL chain） |
+| 2.4c | context_schema 运行时配置注入（Runtime.context） |
 | 2.5 | 对话记忆（短期记忆 + 摘要记忆） |
 | 2.6 | 文档评估与自适应路由（自信度路由） |
 | 2.7 | CLI 升级（流式输出 + 会话管理） |

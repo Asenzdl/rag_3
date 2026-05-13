@@ -18,15 +18,14 @@
 - **RemoveMessage 机制**：LangGraph 的 `add_messages` reducer 识别 `RemoveMessage` 类型，从消息列表中删除指定 ID 的消息。这是 memory 节点写回处理结果的标准方式。
 - **独立 memory 节点的优势**：职责单一（只做记忆管理）、可独立测试、Task 2.6 循环中可复用。
 
-### 生产级注意事项
-- **memory 节点契约**：memory 节点必须保留至少最近 1 条 HumanMessage（当前轮次的问题），否则 generate_node 的 `chat_history` 会丢失当前上下文。Trim 策略应保留至少最后 2-4 条消息（含当前轮）。
+### 生产级注意事项（功能无须质疑，但具体实现必须质疑）
 - **摘要降级策略**：`summarize_conversation` 调用 LLM 失败时，回退到 `trim_conversation_history`（丢弃最早的消息而非抛异常）。
 - **Token 计数准确性**：使用 `tiktoken` 精确计算消息列表的 token 数，而非简单按字符估算，因为中文和代码块的 token 消耗差异巨大。
 - **摘要函数的幂等性**：摘要生成应缓存结果，避免相同对话历史被重复摘要（增加成本和延迟）。
 - **指代消解**：当用户追问"它怎么用？"时，需要将"它"解析为上一轮提到的具体实体。这可以通过在 Prompt 中注入最近对话历史来实现（`build_generate_messages` 的 `chat_history` 参数已提供此能力），而非依赖复杂的 NLP 处理。
 - **图拓扑变更**：`retrieve → [memory] → generate`，memory 节点读取 `state["messages"]`，写回通过 `RemoveMessage` + 摘要/保留的消息。
 
-### 验收标准
+### 验收标准（功能无须质疑，但具体实现必须质疑）
 - 实现 `trim_conversation_history(messages, max_tokens=4000)` 函数，返回裁剪后的消息列表。
 - 实现 `summarize_conversation(messages, llm)` 函数，当消息超过阈值时返回摘要消息（`AIMessage` 类型，content 为摘要文本）。
 - 创建独立 memory 节点，在图拓扑中插入在 retrieve → generate 之间，负责检查消息列表长度并触发裁剪或摘要。
