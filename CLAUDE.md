@@ -74,8 +74,8 @@
 
 > 读取文件/类/函数/配置前，**必须先读** `project_info/CONTEXT_INDEX.md` 定位目标
 
-● 模块/类/函数：查核心模块定位表 → Read，禁止 Grep/Glob
-● 文档路径：查 Phase 目录映射 + 路径模式 → Read，禁止 Glob
+● 模块/类/函数：查核心模块定位表
+● 文档路径：查 Phase 目录映射 + 路径模式 → Read
 ● CONTEXT_INDEX.md 未覆盖时才允许搜索
 ● 按需读取，严禁一次性加载大量无关文件
 
@@ -90,5 +90,4 @@
 
 ## Task 执行入口
 
-当用户说 **"开始 Task X.X"** 时，优先参考 `WORKFLOW.md`（轻流程），也可按 `project_info/task_execution_spec.md`（重流程）。
-
+当用户说 **"开始 Task X.X"** 时，理解 `WORKFLOW.md`
