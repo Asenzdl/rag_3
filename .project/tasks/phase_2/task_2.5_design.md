@@ -153,6 +153,8 @@
 
 - [x] 方案 B 不再失效（如果项目不使用 checkpoint，或不需要通过 ID 追踪消息历史），两方案都可行 → "项目使用 SqliteSaver 检查点持久化，且 Task 2.7 将需要 get_state_history 时间旅行调试"正是让方案 B 的 ID 重建失去追踪能力的原因 → 验证通过
 
+> **实现修正**：设计文档写完后，实现阶段发现消息对象的 `id` 属性为 `None`（未显式指定 id 的消息在 reducer 中才被分配 UUID4），导致无法构造 `RemoveMessage(id=known_id)` 来实现按 ID 删除。因此实际实现中**两条路径统一使用 `RemoveMessage(id=REMOVE_ALL_MESSAGES)` 全量重建**。差异删除的代码蓝图不适用于当前版本，保留作为"若未来 LangChain 默认分配 UUID 时的迁移方向"。
+
 ---
 
 ### 决策 4：增量摘要策略 — 官档显式增量
@@ -282,7 +284,7 @@ def build_generate_messages(*, context, question, chat_history, summary="", vers
 
 #### 决策 4：摘要失败时降级精度
 
-摘要 LLM 调用失败降级到 `trim_messages` 时，使用 `max_tokens * 0.9` 作为 trim 参数。原因：`trim_messages` 的 `end_on=("human",)` 参数是包含性约束——裁剪后列表的末端必须是一条 HumanMessage。如果 budget 刚耗尽时恰好遇到 HumanMessage，保留的消息可能**刚好略高于** `max_tokens`（多保留了一对消息来满足 end_on 条件）。用 90% 阈值做 buffer，确保降级后 token 数严格小于 `max_tokens`。
+摘要 LLM 调用失败降级到 `trim_messages` 时，使用 `max_tokens * 0.9` 作为 trim 参数。原因：降级路径是"保底"路径——此时系统已处于不稳定状态（LLM 网络超时或限流），需确保快速执行且不出错。10% 的 margin 在 `count_tokens_approximately` 的估算波动和 `end_on` 过滤的 token 损耗之间提供安全缓冲。降级路径的目标是"将消息压缩到安全范围内以便继续对话"，不追求精确压缩到预算阈值，保守 margin 是合理的工程取舍。
 
 这与验收约束 5 直接对应："降级后必须确保消息列表 token 数降到阈值以下"。
 
@@ -699,20 +701,18 @@ def memory_node(state: GraphState, runtime: Runtime[GraphContext]) -> dict:
     # 日志：error 记录摘要失败，准备降级
 
     # 步骤 4: 摘要成功 — 全量重建消息列表
+    #   注意：因消息 id=None，无法按 ID 删除（见决策 3 实现修正），
+    #   故使用 REMOVE_ALL_MESSAGES 清除所有旧消息，再重建 kept 列表
     #   构造：messages = [
-    #     RemoveMessage(id=m.id) for m in state["messages"]  # 删除所有
-    #     if hasattr(m, 'id') and m.id
-    #   ] + [
-    #     AIMessage(content=f"[对话摘要] {new_summary}"),  # 摘要放最前
-    #   ] + list(kept_messages)  # 保留的最近消息
-    #   返回：{messages, "summary": new_summary}
+    #     RemoveMessage(id=REMOVE_ALL_MESSAGES),  # 清除全部旧消息
+    #   ] + list(kept_messages)                    # 重建保留消息
+    #   返回：{messages: [RemoveMessage(REMOVE_ALL), ...], "summary": new_summary}
     # 日志：info 记录摘要完成（新摘要长度、保留消息数）
 
     # 步骤 5：摘要失败—降级到 trim
     #   调用 trim_conversation_history，传入 max_tokens=int(max_tokens * 0.9)
-    #   构造差异删除 RemoveMessage——对比原 messages 和 trim 返回的 kept
-    #   id_delta = {m.id for m in messages} - {m.id for m in kept}
-    #   返回：{messages: [RemoveMessage(id=m.id) for m.id in id_delta if m.id]}
+    #   同样使用 REMOVE_ALL_MESSAGES 全量重建（与步骤 4 一致）
+    #   返回：{messages: [RemoveMessage(REMOVE_ALL), ...kept]}
     #   注意：trim 场景不修改 state["summary"]（保留旧摘要或空）
     # 日志：info 记录降级 trim（保留消息数、删除消息数）
 ```
@@ -810,4 +810,4 @@ sequenceDiagram
 
 4. **memory 节点在 greeting/fallback 路径不执行**：memory 节点只在 `route → retrieve → memory → generate` 路径中被调用。如果路由走 greeting 或 fallback 路径，memory 节点不被执行，`state["summary"]` 保持不变。这是正确的——非知识问答路径不需要记忆管理（它们不经历 generate 节点的长历史输入问题）。
 
-5. **`count_tokens_approximately` 对中文的高估**：此函数使用 `len(text) / 4` 估算 token 数（英文约 4 char/token，中文约 1-3 char/token）。中文文本下高估约 2-3 倍。后果是记忆管理**提前触发**而非延迟触发——安全测度，只会增加摘要频率，不会导致超限遗漏。如果实际使用中发现频率过高导致 LLM 调用成本上升，可切换为精确计数器。
+5. **`count_tokens_approximately` 对中文的低估**：此函数使用 `len(text) / 4` 估算 token 数（英文约 4 char/token，中文约 1-2 char/token）。中文文本下低估约 2-3 倍。后果是记忆管理**延迟触发**而非提前触发——不安全方向（可能超出 LLM 上下文窗口），但以当前 4000 阈值 vs 64K 窗口的余量，实际风险可忽略。如果未来缩小阈值/窗口比例，需切换为精确计数器。

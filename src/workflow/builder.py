@@ -8,9 +8,9 @@
 2. **配置驱动**：通过 Settings 注入依赖，与 factories.py 模式一致
 3. **前瞻性设计**：图结构为 Task 2.6 的循环和安全阀预留扩展点
 
-图拓扑（Task 2.3）：
+图拓扑（Task 2.5）：
     START → route → [retrieve | greeting | fallback]
-    retrieve → generate → END
+    retrieve → memory → generate → END
     greeting → END
     fallback → END
 """
@@ -89,7 +89,7 @@ def build_graph(
 
     图拓扑：
         START → route → [retrieve | greeting | fallback]
-        retrieve → generate → END
+        retrieve → memory → generate → END
         greeting → END
         fallback → END
 
@@ -106,6 +106,11 @@ def build_graph(
     为什么 greeting 和 fallback 是模块级函数而非闭包（功能取舍）：
         这两个节点无需注入外部依赖（纯预设回复），模块级函数更简单。
         如果后续需要 LLM 生成问候回复，可改为闭包注入。
+
+    为什么 memory 节点在 retrieve 和 generate 之间（设计决策）：
+        memory 节点负责压缩 chat_history。放在 retrieve 之后、generate 之前，
+        确保 generate 看到的 messages 已被压缩（当前轮 HumanMessage 不受影响）。
+        Task 2.6 循环路径 rewrite → retrieve 会再次经过 memory，提供二次压缩机会。
 
     为什么 generate 后用直接边而非条件边（设计决策）：
         当前图为线性流（无循环），generate 直接到 END 是最简洁的设计。
@@ -139,6 +144,7 @@ def build_graph(
     # 先添加所有节点，再连接边——LangGraph 要求节点在边引用前已注册
     graph.add_node("route", nodes["route"])
     graph.add_node("retrieve", nodes["retrieve"])
+    graph.add_node("memory", nodes["memory"])        # ← Task 2.5 新增
     graph.add_node("generate", nodes["generate"])
     graph.add_node("greeting", _greeting_node)
     graph.add_node("fallback", _fallback_node)
@@ -150,8 +156,9 @@ def build_graph(
     # 条件边：route → [retrieve | greeting | fallback]
     graph.add_conditional_edges("route", route_after_classification)
 
-    # 固定边：retrieve → generate
-    graph.add_edge("retrieve", "generate")
+    # 固定边：retrieve → memory → generate（Task 2.5 插入 memory）
+    graph.add_edge("retrieve", "memory")
+    graph.add_edge("memory", "generate")
 
     # 终止边：generate / greeting / fallback → END
     graph.add_edge("generate", END)

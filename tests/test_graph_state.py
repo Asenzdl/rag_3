@@ -43,6 +43,7 @@ def initial_state(base_messages):
         documents=[],
         iteration_count=0,
         route_decision="",
+        summary="",
     )
 
 

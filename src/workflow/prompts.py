@@ -203,6 +203,7 @@ def build_generate_messages(
     context: str,
     question: str,
     chat_history: Iterable[BaseMessage],
+    summary: str = "",
     version: PromptVersion = PromptVersion.V2,
     include_few_shot: bool = True,
 ) -> list[BaseMessage]:
@@ -213,9 +214,10 @@ def build_generate_messages(
 
     消息顺序（LangChain Chat 模型惯例）：
         1. SystemMessage — 全局行为指令
-        2. [Few-shot 示例对] — Human + AI 示例（可选，V2 默认开启）
-        3. chat_history — 前几轮的对话对（不含当前轮原始 HumanMessage）
-        4. HumanMessage — 当前轮问题 + 文档上下文
+        2. [SystemMessage(摘要)] — Task 2.5 对话摘要（可选）
+        3. [Few-shot 示例对] — Human + AI 示例（可选，V2 默认开启）
+        4. chat_history — 前几轮的对话对（不含当前轮原始 HumanMessage）
+        5. HumanMessage — 当前轮问题 + 文档上下文
 
     为什么 chat_history 接收 state["messages"][:-1]（精确语义）：
         state["messages"][-1] 是当前轮的原始 HumanMessage，而本函数
@@ -223,10 +225,16 @@ def build_generate_messages(
         如果 chat_history 包含当前轮原始 HumanMessage，LLM 会看到两个
         Q_current，造成冗余和潜在混淆。
 
+    为什么摘要用 SystemMessage 而非放在 chat_history（设计决策）：
+        摘要描述的是对话的语义压缩，是 meta 信息而非对话记录。
+        SystemMessage 区域适合放置 meta 信息，LLM 将其视为"对话上下文说明"。
+        放在 chat_history 中会导致具体消息与摘要并列，LLM 不确定哪个更可信。
+
     Args:
         context: format_docs 格式化后的文档上下文字符串
         question: 当前用户问题（由 route_node 从 messages 中提取）
         chat_history: 前几轮消息列表（不含当前轮），即 state["messages"][:-1]
+        summary: 对话摘要文本（Task 2.5 memory 节点写入），空字符串表示无摘要
         version: Prompt 版本，默认 V2
         include_few_shot: 是否插入 few-shot 示例（仅 V2 有效）
 
@@ -242,7 +250,20 @@ def build_generate_messages(
     # 2a：SystemMessage — 全局行为指令，必须在首位
     messages.append(SystemMessage(content=templates["system"]))
 
-    # 2b：Few-shot 示例（可选）
+    # 2b：摘要注入（Task 2.5）
+    # 为什么放在 SystemMessage 之后、few-shot 之前：
+    #   摘要是对对话历史的元描述，紧随系统指令后最自然——不让它干扰
+    #   系统指令的全局性，又确保在 few-shot 示例之前被 LLM 关注
+    if summary:
+        messages.append(SystemMessage(
+            content=(
+                "以下是之前的对话摘要，请结合它理解当前对话的上下文：\n"
+                f"{summary}\n\n"
+                "注意：摘要是对之前对话的压缩，不是完整对话记录。"
+            )
+        ))
+
+    # 2c：Few-shot 示例（可选）
     # 为什么放在 System 和 chat_history 之间（设计决策）：
     #   Chat 模型会模仿紧邻示例的格式，few-shot 在 chat_history 之前
     #   让模型先看到"理想回答格式"，再处理历史对话和当前问题
@@ -251,12 +272,12 @@ def build_generate_messages(
             messages.append(human_msg)
             messages.append(ai_msg)
 
-    # 2c：Chat history — 前几轮对话
+    # 2d：Chat history — 前几轮对话
     # 注意：此处接收的 chat_history 已排除 state["messages"][-1]
     # （当前轮原始 HumanMessage），防止问题重复
     messages.extend(chat_history)
 
-    # 2d：HumanMessage — 当前轮问题 + 文档上下文
+    # 2e：HumanMessage — 当前轮问题 + 文档上下文
     # 为什么在列表末尾（设计决策）：
     #   Chat 模型的 attention 对末尾 token 权重更高，
     #   当前问题在末尾确保模型优先关注当前输入

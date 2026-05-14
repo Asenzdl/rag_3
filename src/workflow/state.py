@@ -140,14 +140,36 @@ class GraphState(TypedDict):
         若后续需要强约束（如拼写错误防护），可升级为 Literal 类型。
     """
 
+    summary: str
+    """对话摘要文本 — Task 2.5 对话记忆管理使用。
+
+    为什么是独立字段而非在 messages 列表中存储摘要消息（设计决策）：
+        1. 路由节点反向遍历 messages 找最后一条 HumanMessage 时，
+           不受摘要消息干扰
+        2. 增量扩展自然：state["summary"] 为空 = 创建，非空 = 扩展
+        3. 摘要不占用 messages 的 token 配额（不参与 memory 触发门槛计算）
+        4. 与 LangGraph 官档的 summarize_conversation 模式一致
+
+    生命周期：
+        - 初始值：""（空字符串，表示无摘要）
+        - memory_node 摘要成功后写入新值
+        - trim 降级不修改此字段（裁剪不生成摘要）
+        - build_generate_messages 读取此值注入到 SystemMessage
+    """
+
+
 @dataclass
 class GraphContext:
     """LangGraph 运行时配置 — 每次 invoke 独立传入，不入检查点。
 
     字段说明：
         max_iterations: 工作流最大迭代次数（安全阀阈值，Task 2.6 条件边使用）
+        max_tokens: memory 节点触发阈值。当 messages 列表的估计 token 数
+                    超过此值时触发摘要，失败则降级为裁剪。
+                    Task 2.5 验收约束要求此字段放在 context_schema 中。
     """
     max_iterations: int = 3
+    max_tokens: int = 4000
 
 
 __all__ = [

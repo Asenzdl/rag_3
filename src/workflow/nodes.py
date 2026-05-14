@@ -19,8 +19,15 @@ from typing import Any, Callable
 import structlog
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
+from langchain_core.messages.utils import count_tokens_approximately
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+from src.memory import (
+    KEEP_LAST_N,
+    summarize_conversation,
+    trim_conversation_history,
+)
 from src.workflow.citation import CitationExtractor, CitationExtractionError
 from src.utils.retry import with_retry
 from src.retriever.base_retriever import RetrievalError
@@ -233,6 +240,7 @@ def create_workflow_nodes(
             context=context,
             question=question,
             chat_history=state.get("messages", [])[:-1],
+            summary=state.get("summary", ""),
         )
         # 为什么用 except Exception 统一捕获（反直觉辩护）：
         #     with_retry(reraise=True) 重抛原始 SDK 异常（如 openai.APITimeoutError），
@@ -289,10 +297,108 @@ def create_workflow_nodes(
             "iteration_count": current_count + 1,
         }
 
+    # ============================================================
+    # memory_node：对话记忆管理（Task 2.5）
+    # ============================================================
+
+    def memory_node(state: GraphState, runtime: Runtime[GraphContext]) -> dict:
+        """记忆管理节点：检查消息长度，必要时触发裁剪或摘要。
+
+        memory_node 执行时 state["messages"] 包含：
+            [系统指令, 历史消息..., HumanMessage(当前轮)]
+        当前轮 HumanMessage（即 messages[-1]）必须保留——memory 只压缩历史。
+
+        memory_node 只写 messages 和 summary 字段，不碰 question / documents
+        / route_decision / iteration_count（SRP——它们由其他节点管理）。
+
+        Returns:
+            {"messages": [RemoveMessage(...), ...], "summary": "..."} 或 {}
+            返回 {} 表示无操作（不触发记忆管理）。
+        """
+        # 步骤 1：读取状态 + 配置
+        messages = state.get("messages", [])
+        max_tokens = (
+            runtime.context.max_tokens
+            if runtime.context is not None
+            else 4000
+        )
+        if not messages:
+            return {}
+        # 日志：debug 记录当前消息数
+
+        # 步骤 2：计算 token 总数，判断是否超限
+        # count_tokens_approximately 接收 list[BaseMessage] 而非单条消息
+        total = count_tokens_approximately(messages)
+        if total <= max_tokens:
+            logger.debug("消息列表未超阈值，跳过记忆管理")
+            return {}
+        logger.info(
+            "触发记忆管理",
+            message_count=len(messages),
+            total_tokens=total,
+            max_tokens=max_tokens,
+        )
+
+        # 步骤 3：尝试摘要（增量扩展）
+        #   ├─ 成功 → 步骤 4（摘要成功路径）
+        #   └─ 失败 → 步骤 5（降级路径）
+        try:
+            new_summary, kept = summarize_conversation(
+                messages=messages,
+                llm=llm,
+                existing_summary=state.get("summary", ""),
+                keep_last_n=KEEP_LAST_N,
+            )
+            # 防 LLM 返回空 content 清除已有摘要
+            if not new_summary:
+                new_summary = state.get("summary", "") or ""
+        except Exception as e:
+            logger.error("摘要失败，降级为裁剪", error=str(e))
+            # 降级：用 max_tokens * 0.9 防 end_on overshoot
+            kept = trim_conversation_history(
+                messages, max_tokens=int(max_tokens * 0.9)
+            )
+            # REMOVE_ALL_MESSAGES 清除所有旧消息，再重建 kept 列表
+            # 为什么必须这样（反直觉辩护）：
+            #   当前 LangChain 版本中消息的 id 属性为 None，
+            #   无法通过 RemoveMessage(id=m.id) 按 ID 删除。
+            #   REMOVE_ALL_MESSAGES 是框架层面可用的删除全部消息方式。
+            logger.warning(
+                "降级裁剪完成",
+                kept_count=len(kept),
+            )
+            return {
+                "messages": [
+                    RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                    *kept,
+                ],
+            }
+
+        # 步骤 4：摘要成功 — 全量重建消息列表
+        # 用 REMOVE_ALL_MESSAGES 清除所有旧消息，再将 kept 重新写入
+        # 注意：kept 是原对象引用，重新 append 时消息内容不变
+        logger.info(
+            "摘要完成",
+            new_summary_length=len(new_summary),
+            kept_count=len(kept),
+        )
+        return {
+            "messages": [
+                RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                *kept,
+            ],
+            "summary": new_summary,
+        }
+
+    # ============================================================
+    # 返回节点字典
+    # ============================================================
+
     # 返回节点字典
     return {
         "route": route_node,
         "retrieve": retrieve_node,
+        "memory": memory_node,
         "generate": generate_node,
     }
 

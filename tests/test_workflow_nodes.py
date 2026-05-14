@@ -147,6 +147,7 @@ def initial_state():
         documents=[],
         iteration_count=0,
         route_decision="",
+        summary="",
     )
 
 
@@ -165,6 +166,7 @@ def state_with_documents():
         documents=docs,
         iteration_count=0,
         route_decision="retrieve",
+        summary="",
     )
 
 
@@ -280,8 +282,9 @@ class TestCreateWorkflowNodes:
         nodes = create_workflow_nodes(mock_retriever, llm)
         assert "route" in nodes
         assert "retrieve" in nodes
+        assert "memory" in nodes
         assert "generate" in nodes
-        assert len(nodes) == 3
+        assert len(nodes) == 4
 
     def test_node_functions_are_callable(self, mock_retriever):
         """每个节点函数都应可调用。"""
@@ -319,6 +322,7 @@ class TestRouteNode:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
         result = nodes["route"](state)
 
@@ -337,6 +341,7 @@ class TestRouteNode:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
         result = nodes["route"](state)
 
@@ -354,6 +359,7 @@ class TestRouteNode:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
         result = nodes["route"](state)
 
@@ -375,6 +381,7 @@ class TestRouteNode:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
         result = nodes["route"](state)
 
@@ -390,6 +397,7 @@ class TestRouteNode:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
         result = nodes["route"](state)
         assert result["route_decision"] == GREETING
@@ -404,6 +412,7 @@ class TestRouteNode:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
         result = nodes["route"](state)
         assert result["route_decision"] == RETRIEVE
@@ -447,6 +456,7 @@ class TestRetrieveNode:
             documents=[],
             iteration_count=0,
             route_decision="retrieve",
+        summary="",
         )
         result = nodes["retrieve"](state)
 
@@ -465,6 +475,7 @@ class TestRetrieveNode:
             documents=[],
             iteration_count=0,
             route_decision="retrieve",
+        summary="",
         )
         result = nodes["retrieve"](state)
 
@@ -482,6 +493,7 @@ class TestRetrieveNode:
             documents=[],
             iteration_count=0,
             route_decision="retrieve",
+        summary="",
         )
         nodes["retrieve"](state)
 
@@ -500,6 +512,7 @@ class TestRetrieveNode:
             documents=[],
             iteration_count=0,
             route_decision="retrieve",
+        summary="",
         )
         result = nodes["retrieve"](state)
 
@@ -537,6 +550,7 @@ class TestGenerateNode:
             documents=[],
             iteration_count=0,
             route_decision="retrieve",
+        summary="",
         )
         result = nodes["generate"](state, default_runtime)
 
@@ -619,6 +633,7 @@ class TestNodeCollaboration:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
 
         # 第1步：路由
@@ -644,6 +659,7 @@ class TestNodeCollaboration:
             documents=[],
             iteration_count=0,
             route_decision="",
+        summary="",
         )
 
         # route

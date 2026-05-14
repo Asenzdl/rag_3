@@ -39,6 +39,7 @@ def _make_state(**overrides) -> dict:
         "documents": [],
         "iteration_count": 0,
         "route_decision": "",
+        "summary": "",
     }
     base.update(overrides)
     return base
@@ -127,11 +128,11 @@ class TestBuildGraph:
         graph, _ = _build_graph_with_mocks()
         assert graph is not None
 
-    def test_contains_five_nodes(self):
-        """图包含 5 个业务节点：route, retrieve, generate, greeting, fallback。"""
+    def test_contains_six_nodes(self):
+        """图包含 6 个业务节点：route, retrieve, memory, generate, greeting, fallback。"""
         graph, _ = _build_graph_with_mocks()
         node_names = {n for n in graph.nodes.keys() if not n.startswith("__")}
-        expected = {"route", "retrieve", "generate", "greeting", "fallback"}
+        expected = {"route", "retrieve", "memory", "generate", "greeting", "fallback"}
         assert node_names == expected
 
     def test_generate_has_end_as_successor(self):
@@ -152,6 +153,7 @@ class TestBuildGraph:
                 "documents": [],
                 "iteration_count": 0,
                 "route_decision": "",
+        "summary": "",
             })
 
         # 图正常结束（到达 END），最后一条消息是 generate 节点的输出
@@ -186,6 +188,7 @@ class TestBuildGraph:
                 "documents": [],
                 "iteration_count": 0,
                 "route_decision": "",
+        "summary": "",
             })
 
         # 最后一条消息应是问候回复
@@ -204,6 +207,7 @@ class TestBuildGraph:
                 "documents": [],
                 "iteration_count": 0,
                 "route_decision": "",
+        "summary": "",
             })
 
         last_msg = result["messages"][-1]

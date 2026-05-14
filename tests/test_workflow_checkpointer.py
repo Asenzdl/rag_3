@@ -47,8 +47,7 @@ def _build_graph_with_mocks_and_checkpointer(
     mock_llm = MagicMock()
 
     with patch("src.workflow.builder.create_retriever", return_value=MagicMock()), \
-         patch("src.workflow.builder.create_llm", return_value=mock_llm), \
-         patch("src.workflow.builder.get_prompt", return_value=MagicMock()):
+         patch("src.workflow.builder.create_llm", return_value=mock_llm):
         graph = build_graph(settings, checkpointer=checkpointer)
 
     return graph, mock_llm
@@ -99,6 +98,7 @@ class TestCreateCheckpointer:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     "test-setup",
                 )
@@ -127,6 +127,7 @@ class TestBuildGraphBackwardCompatibility:
                 "documents": [],
                 "iteration_count": 0,
                 "route_decision": "",
+        "summary": "",
             })
 
         last_msg = result["messages"][-1]
@@ -164,6 +165,7 @@ class TestMultiTurnStateAccumulation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     thread_id,
                 )
@@ -181,6 +183,7 @@ class TestMultiTurnStateAccumulation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     thread_id,
                 )
@@ -198,6 +201,7 @@ class TestMultiTurnStateAccumulation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     thread_id,
                 )
@@ -223,6 +227,7 @@ class TestMultiTurnStateAccumulation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     thread_id,
                 )
@@ -263,6 +268,7 @@ class TestInterruptionRecovery:
                             "documents": [],
                             "iteration_count": 0,
                             "route_decision": "",
+        "summary": "",
                         },
                         thread_id,
                     )
@@ -285,6 +291,7 @@ class TestInterruptionRecovery:
                             "documents": [],
                             "iteration_count": 0,
                             "route_decision": "",
+        "summary": "",
                         },
                         thread_id,
                     )
@@ -325,6 +332,7 @@ class TestThreadIdIsolation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     "thread-1",
                 )
@@ -339,6 +347,7 @@ class TestThreadIdIsolation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     "thread-2",
                 )
@@ -373,6 +382,7 @@ class TestThreadIdIsolation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     "thread-A",
                 )
@@ -384,6 +394,7 @@ class TestThreadIdIsolation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     "thread-A",
                 )
@@ -398,6 +409,7 @@ class TestThreadIdIsolation:
                         "documents": [],
                         "iteration_count": 0,
                         "route_decision": "",
+        "summary": "",
                     },
                     "thread-B",
                 )
@@ -432,6 +444,7 @@ class TestTimeTravelDebugging:
                             "documents": [],
                             "iteration_count": 0,
                             "route_decision": "",
+        "summary": "",
                         },
                         thread_id,
                     )
