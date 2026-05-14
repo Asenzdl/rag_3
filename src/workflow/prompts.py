@@ -351,9 +351,9 @@ def build_generate_messages(
     return messages
 
 __all__ = [
-    "build_generate_messages",
-    "format_docs",
     "DocumentGrade",
     "GradeList",
     "REWRITE_PROMPT",
+    "build_generate_messages",
+    "format_docs",
 ]

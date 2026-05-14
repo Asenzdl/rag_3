@@ -107,9 +107,7 @@ def route_after_grade(state: GraphState) -> str:
 
     return "memory"  # 降级：generate 节点处理空文档场景
 
-
 __all__ = [
     "route_after_classification",
     "route_after_grade",
-    "TOOL_CALL",
 ]

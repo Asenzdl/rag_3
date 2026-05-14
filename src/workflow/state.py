@@ -193,7 +193,6 @@ class GraphContext:
     max_tokens: int = 4000
     max_rewrite_count: int = 1
 
-
 __all__ = [
     "GraphState",
     "GraphContext",
