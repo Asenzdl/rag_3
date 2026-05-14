@@ -14,7 +14,9 @@
 
 **前置**：必须理解透彻了用户画像和约束优先级
 
-**动作**：理解 `task_X.X.X.md` 中的需求，并与用户确认理解无误
+**动作**：理解 `.project/outline/phase_X_*/task_X.X.md` 中的需求，并与用户确认理解无误
+
+**关键约束**：- **必须查官方文档**（用 langgraph 官方 MCP Docs by LangChain + context7 补充信息），避免因知识冻结导致的知识/概念陈旧以及 API 变更。
 
 ## 步骤 1：方案设计
 
@@ -40,7 +42,6 @@
 **Plan agent 硬性约束**：
 - 角色设定：你是一名精通 LangChain、LangGraph 生态及生产级 RAG 系统设计的 AI 应用架构师，同时也是 Python 专家，和我（另一个架构师）一起讨论。
 - 用户画像（关键约束）：[引用 CLAUDE.md]
-- **必须查官方文档**（用 langgraph 官方 MCP Docs by LangChain + context7 补充信息），避免因知识冻结导致的知识/概念陈旧以及 API 变更。
 - Task X.X 需求文档：[引用 task_X.X.md]
 
 ---
@@ -121,6 +122,6 @@
 
 **触发**：步骤 4 结束后，询问用户是否进入步骤5
 
-**动作**：对设计文档 / 非测试代码 / 技术文档进行客观审查并打分
+**动作**：对设计文档 / 代码 / 技术文档进行客观审查并生成审查报告，存入 `.project/review/phase_X/task_X.X_review.md`
 
 ---
