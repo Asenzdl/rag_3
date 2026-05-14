@@ -14,6 +14,7 @@ from typing import Dict, Iterable, List
 import structlog
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.documents import Document
+from pydantic import BaseModel, Field
 
 logger = structlog.get_logger(__name__)
 
@@ -179,6 +180,68 @@ FEW_SHOT_EXAMPLES: List[tuple] = [
 
 
 # ============================================================
+# 文档评估（Task 2.6）
+# ============================================================
+
+class DocumentGrade(BaseModel):
+    """单篇文档的二元相关性评分。
+
+    使用方法：作为 with_structured_output 的类型参数，
+        llm.with_structured_output(DocumentGrade)
+
+    为什么用 str "yes"/"no" 而非 bool：
+        遵循 LangGraph 官方 Agentic RAG 教程模式。
+        LLM 对字符串标签的输出稳定性高于 True/False——字符串匹配
+        没有类型转换歧义，且 prompt 中的 'yes'/'no' 更自然。
+    """
+    binary_score: str = Field(
+        description="Relevance score: 'yes' if relevant, or 'no' if not relevant"
+    )
+
+
+class GradeList(BaseModel):
+    """批量文档评分结果 — 一次性返回所有文档的评分列表。
+
+    [交叉验证] Plan agent 建议批量评分替代逐条调用的理由：
+        - 延迟：N 条文档 × ~500ms → 1 × ~500ms
+        - 跨文档关联偏差理论上存在但实践中影响极小
+        - N = 5 时 2.5s vs 0.5s，差距在实际应用中不可接受
+    """
+    grades: list[DocumentGrade] = Field(
+        description="Grades for each document, in the same order as input documents"
+    )
+
+
+GRADE_PROMPT = """You are a grader assessing relevance of a retrieved document to a user question.
+The document may be written in English and the question may be in Chinese or English.
+Grade based on semantic meaning and content relevance, not language match.
+
+Here is the retrieved document:
+{document}
+
+Here is the user question:
+{question}
+
+If the document contains keyword(s) or semantic meaning related to the question, grade it as relevant.
+Give a binary score 'yes' or 'no' to indicate whether the document is relevant to the question."""
+"""文档评估 Prompt — 跨语言适配（英文文档 + 中文问题）。
+
+为什么明确指定跨语言评估（设计决策）：
+    默认情况下 LLM 可能认为"英文文档 ≠ 中文问题"即不相关，
+    显式告知 grade based on semantic meaning not language match
+    可避免这种误判。"""
+
+REWRITE_PROMPT = """Look at the input and try to reason about the underlying semantic intent / meaning.
+Here is the initial question:
+{question}
+Formulate an improved question that would be more effective for semantic search.
+Keep the original intent unchanged."""
+"""查询改写 Prompt — 来自 LangGraph 官方 Agentic RAG 教程适配。
+
+核心约束：最小修改原则，只增不删，保留原始问题语义。"""
+
+
+# ============================================================
 # Prompt 版本注册表
 # ============================================================
 
@@ -290,4 +353,7 @@ def build_generate_messages(
 __all__ = [
     "build_generate_messages",
     "format_docs",
+    "DocumentGrade",
+    "GradeList",
+    "REWRITE_PROMPT",
 ]

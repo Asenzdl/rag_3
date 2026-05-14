@@ -32,7 +32,13 @@ from src.workflow.citation import CitationExtractor, CitationExtractionError
 from src.utils.retry import with_retry
 from src.retriever.base_retriever import RetrievalError
 from src.retriever.protocols import RetrieverProtocol
-from src.workflow.prompts import build_generate_messages, format_docs
+from src.workflow.prompts import (
+    DocumentGrade,
+    GradeList,
+    REWRITE_PROMPT,
+    build_generate_messages,
+    format_docs,
+)
 from src.workflow.routing import classify_intent
 from src.workflow.state import GraphState
 from langgraph.runtime import Runtime
@@ -184,6 +190,121 @@ def create_workflow_nodes(
 
         # 第3步：返回状态更新
         return {"documents": docs}
+
+    # ============================================================
+    # grade_documents_node：文档相关性评估（Task 2.6）
+    # ============================================================
+
+    def grade_documents_node(state: GraphState) -> dict:
+        """文档评估节点：批量评分 + 过滤不相关文档。
+
+        [交叉验证] 批量评分（GradeList）替代逐条评分，延迟 5x → 1x。
+
+        工作流程：
+            1. 读取 state.question、state.documents
+            2. 调用 llm.with_structured_output(GradeList) 批量评分
+            3. 保留 binary_score == "yes" 的文档
+            4. 失败时保守回退：保留所有文档
+
+        Returns:
+            {"documents": list[Document]} — 过滤后的文档列表
+        """
+        question = state.get("question", "")
+        docs = state.get("documents", [])
+
+        if not docs:
+            return {}
+
+        # 第1步：组装批量评分 prompt
+        doc_texts = "\n\n".join(
+            f"[{i+1}] {d.page_content}" for i, d in enumerate(docs)
+        )
+        grade_prompt = (
+            "You are a grader assessing relevance of retrieved documents to a user question.\n"
+            "The documents may be written in English and the question may be in Chinese or English.\n"
+            "Grade based on semantic meaning and content relevance, not language match.\n\n"
+            f"Question: {question}\n\n"
+            f"Documents:\n{doc_texts}\n\n"
+            "For each document, return a binary score 'yes' if relevant or 'no' if not, "
+            "in the same order as the documents."
+        )
+
+        # 第2步：调用 LLM 评分
+        try:
+            grade_chain = llm.with_structured_output(GradeList)
+            result = grade_chain.invoke(
+                [HumanMessage(content=grade_prompt)]
+            )
+
+            # 第3步：验证返回结果长度
+            if len(result.grades) != len(docs):
+                logger.warning(
+                    "评分结果数量不匹配，保守保留所有文档",
+                    expected=len(docs),
+                    actual=len(result.grades),
+                )
+                return {"documents": docs}
+
+            # 第4步：仅保留 "yes" 的文档
+            filtered = [
+                doc
+                for doc, grade in zip(docs, result.grades)
+                if grade.binary_score.strip().lower() == "yes"
+            ]
+            logger.info(
+                "文档评分完成",
+                input_count=len(docs),
+                output_count=len(filtered),
+            )
+            return {"documents": filtered}
+
+        except Exception as e:
+            logger.warning(
+                "文档评分失败，保守保留所有文档",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return {"documents": docs}
+
+    # ============================================================
+    # rewrite_node：查询改写（Task 2.6）
+    # ============================================================
+
+    def rewrite_node(state: GraphState) -> dict:
+        """查询改写节点：改写问题以提升检索效果。
+
+        [交叉验证] rewrite_count 在此递增（而非 grade 节点）：
+            条件边需在 rewrite 前判断 count < max 才能放行，
+            若 grade 已递增，条件边看到的是 post-increment 值。
+
+        Returns:
+            {"question": str, "rewrite_count": int}
+        """
+        question = state.get("question", "")
+        current_count = state.get("rewrite_count", 0)
+
+        if not question:
+            return {"rewrite_count": current_count + 1}
+
+        try:
+            response = llm.invoke(
+                [HumanMessage(content=REWRITE_PROMPT.format(question=question))]
+            )
+            rewritten = response.content.strip()
+            if not rewritten:
+                rewritten = question
+        except Exception as e:
+            logger.warning(
+                "查询改写失败，保留原问题",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            rewritten = question
+
+        return {
+            "question": rewritten,
+            "rewrite_count": current_count + 1,
+        }
 
     # ============================================================
     # generate_node：LLM 生成回答 + 引用提取 + 迭代计数
@@ -398,6 +519,8 @@ def create_workflow_nodes(
     return {
         "route": route_node,
         "retrieve": retrieve_node,
+        "grade": grade_documents_node,
+        "rewrite": rewrite_node,
         "memory": memory_node,
         "generate": generate_node,
     }

@@ -39,6 +39,7 @@ from src.workflow.nodes import (
     GENERATION_ERROR_RESPONSE,
     create_workflow_nodes,
 )
+from src.workflow.prompts import DocumentGrade, GradeList
 from src.workflow.routing import (
     FALLBACK,
     GREETING,
@@ -148,6 +149,8 @@ def initial_state():
         iteration_count=0,
         route_decision="",
         summary="",
+        rewrite_count=0,
+        max_rewrite_count=1,
     )
 
 
@@ -167,6 +170,8 @@ def state_with_documents():
         iteration_count=0,
         route_decision="retrieve",
         summary="",
+        rewrite_count=0,
+        max_rewrite_count=1,
     )
 
 
@@ -276,15 +281,17 @@ class TestClassifyIntent:
 class TestCreateWorkflowNodes:
     """工作流节点工厂函数测试。"""
 
-    def test_factory_returns_three_nodes(self, mock_retriever):
-        """工厂函数应返回包含三个节点函数的字典。"""
+    def test_factory_returns_six_nodes(self, mock_retriever):
+        """工厂函数应返回包含六个节点函数的字典（Task 2.6 新增 grade/rewrite）。"""
         llm = FakeChatModel(response_content="retrieve")
         nodes = create_workflow_nodes(mock_retriever, llm)
         assert "route" in nodes
         assert "retrieve" in nodes
+        assert "grade" in nodes
+        assert "rewrite" in nodes
         assert "memory" in nodes
         assert "generate" in nodes
-        assert len(nodes) == 4
+        assert len(nodes) == 6
 
     def test_node_functions_are_callable(self, mock_retriever):
         """每个节点函数都应可调用。"""
@@ -520,6 +527,212 @@ class TestRetrieveNode:
         assert result["documents"] == []
 
 
+class TestGradeDocumentsNode:
+    """文档评估节点测试。"""
+
+    def test_all_relevant(self, mock_retriever, state_with_documents):
+        """全部相关 → 所有文档通过。"""
+        llm = MagicMock(spec=BaseChatModel)
+
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = GradeList(
+            grades=[DocumentGrade(binary_score="yes")]
+        )
+        llm.with_structured_output.return_value = mock_chain
+
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        result = nodes["grade"](state_with_documents)
+
+        assert len(result["documents"]) == 1
+
+    def test_all_irrelevant(self, mock_retriever, state_with_documents):
+        """全部不相关 → 空列表。"""
+        llm = MagicMock(spec=BaseChatModel)
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = GradeList(
+            grades=[DocumentGrade(binary_score="no")]
+        )
+        llm.with_structured_output.return_value = mock_chain
+
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        result = nodes["grade"](state_with_documents)
+
+        assert result["documents"] == []
+
+    def test_mixed_relevance(self, mock_retriever):
+        """部分相关 → 仅保留 yes 的文档。"""
+        llm = MagicMock(spec=BaseChatModel)
+        mock_chain = MagicMock()
+        mock_chain.invoke.return_value = GradeList(
+            grades=[
+                DocumentGrade(binary_score="yes"),
+                DocumentGrade(binary_score="no"),
+            ]
+        )
+        llm.with_structured_output.return_value = mock_chain
+
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        state = GraphState(
+            messages=[HumanMessage(content="测试")],
+            question="测试问题",
+            documents=[
+                Document(page_content="relevant doc", metadata={"source": "url1"}),
+                Document(page_content="irrelevant doc", metadata={"source": "url2"}),
+            ],
+            iteration_count=0,
+            route_decision="retrieve",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
+        )
+        result = nodes["grade"](state)
+
+        assert len(result["documents"]) == 1
+        assert result["documents"][0].page_content == "relevant doc"
+
+    def test_no_documents(self, mock_retriever):
+        """空文档输入 → 返回空字典（不调用 LLM）。"""
+        llm = MagicMock(spec=BaseChatModel)
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        state = GraphState(
+            messages=[HumanMessage(content="测试")],
+            question="测试问题",
+            documents=[],
+            iteration_count=0,
+            route_decision="retrieve",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
+        )
+        result = nodes["grade"](state)
+
+        assert result == {}
+        llm.with_structured_output.assert_not_called()
+
+    def test_structured_output_failure(self, mock_retriever, state_with_documents):
+        """with_structured_output 失败 → 保守保留所有文档。"""
+        llm = MagicMock(spec=BaseChatModel)
+        mock_chain = MagicMock()
+        mock_chain.invoke.side_effect = ValueError("bad json")
+        llm.with_structured_output.return_value = mock_chain
+
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        result = nodes["grade"](state_with_documents)
+
+        assert len(result["documents"]) == 1  # 全部保留
+        assert result["documents"][0].page_content == "LangGraph is a framework."
+
+    def test_grade_result_length_mismatch(self, mock_retriever):
+        """评分结果数量不匹配 → 保守保留所有文档。"""
+        llm = MagicMock(spec=BaseChatModel)
+        mock_chain = MagicMock()
+        # 2 篇文档但只返回 1 个评分
+        mock_chain.invoke.return_value = GradeList(
+            grades=[DocumentGrade(binary_score="yes")]
+        )
+        llm.with_structured_output.return_value = mock_chain
+
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        state = GraphState(
+            messages=[HumanMessage(content="测试")],
+            question="测试问题",
+            documents=[
+                Document(page_content="doc1", metadata={"source": "url1"}),
+                Document(page_content="doc2", metadata={"source": "url2"}),
+            ],
+            iteration_count=0,
+            route_decision="retrieve",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
+        )
+        result = nodes["grade"](state)
+
+        assert len(result["documents"]) == 2  # 全部保留
+
+    def test_pure_function_signature(self, mock_retriever):
+        """grade_documents 是纯函数 (state) -> dict，无 runtime 参数。"""
+        import inspect
+
+        llm = MagicMock(spec=BaseChatModel)
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        sig = inspect.signature(nodes["grade"])
+        params = list(sig.parameters.keys())
+        assert params == ["state"]
+
+
+class TestRewriteNode:
+    """查询改写节点测试。"""
+
+    def test_rewrites_question(self, mock_retriever):
+        """正常改写 → question 更新 + rewrite_count 递增。"""
+        llm = FakeChatModel(response_content="improved question")
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        state = GraphState(
+            messages=[HumanMessage(content="测试")],
+            question="original question",
+            documents=[],
+            iteration_count=0,
+            route_decision="retrieve",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
+        )
+        result = nodes["rewrite"](state)
+
+        assert result["question"] == "improved question"
+        assert result["rewrite_count"] == 1
+
+    def test_llm_failure_fallback(self, mock_retriever):
+        """LLM 失败 → 保留原问题，rewrite_count 仍递增。"""
+        llm = FailingChatModel(error=RuntimeError("API timeout"))
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        state = GraphState(
+            messages=[HumanMessage(content="测试")],
+            question="original question",
+            documents=[],
+            iteration_count=0,
+            route_decision="retrieve",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
+        )
+        result = nodes["rewrite"](state)
+
+        assert result["question"] == "original question"
+        assert result["rewrite_count"] == 1
+
+    def test_empty_question(self, mock_retriever):
+        """空问题 → count 递增，question 不变。"""
+        llm = FakeChatModel(response_content="rewritten")
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        state = GraphState(
+            messages=[HumanMessage(content="")],
+            question="",
+            documents=[],
+            iteration_count=0,
+            route_decision="retrieve",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
+        )
+        result = nodes["rewrite"](state)
+
+        assert result["rewrite_count"] == 1
+        # 空问题不会触发 LLM 调用，只返回 rewrite_count
+        assert "question" not in result
+
+    def test_pure_function_signature(self, mock_retriever):
+        """rewrite_node 是纯函数 (state) -> dict，无 runtime 参数。"""
+        import inspect
+
+        llm = FakeChatModel()
+        nodes = create_workflow_nodes(mock_retriever, llm)
+        sig = inspect.signature(nodes["rewrite"])
+        params = list(sig.parameters.keys())
+        assert params == ["state"]
+
+
 class TestGenerateNode:
     """生成节点测试。"""
 
@@ -633,7 +846,9 @@ class TestNodeCollaboration:
             documents=[],
             iteration_count=0,
             route_decision="",
-        summary="",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
         )
 
         # 第1步：路由
@@ -659,7 +874,9 @@ class TestNodeCollaboration:
             documents=[],
             iteration_count=0,
             route_decision="",
-        summary="",
+            summary="",
+            rewrite_count=0,
+            max_rewrite_count=1,
         )
 
         # route

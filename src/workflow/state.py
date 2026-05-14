@@ -157,6 +157,24 @@ class GraphState(TypedDict):
         - build_generate_messages 读取此值注入到 SystemMessage
     """
 
+    rewrite_count: int
+    """重写计数器 — rewrite 节点执行时递增。
+
+    递增时机：每次 rewrite 节点完成改写后 +1（而非 grade 节点判定时）。
+    [交叉验证] Plan agent 建议将递增从 grade 移至 rewrite，理由：
+        条件边需在 rewrite 前判断 count < max 才能放行，
+        grade 递增会使条件边看到的已是 post-increment 值。
+    """
+
+    max_rewrite_count: int
+    """查询改写硬性上限 — 配置而非数据。
+
+    [交叉验证] Plan agent 建议直接存入 GraphState（而非 GraphContext closure），
+        理由：条件边函数仅接收 state，闭包捕获的配置在 build 时固定，
+        存入状态后 per-invoke 可配、测试直接、纯函数可测。
+    反转条件：未来配置字段膨胀时，用 input_schema 过滤 GraphState 入站字段。
+    """
+
 
 @dataclass
 class GraphContext:
@@ -167,9 +185,13 @@ class GraphContext:
         max_tokens: memory 节点触发阈值。当 messages 列表的估计 token 数
                     超过此值时触发摘要，失败则降级为裁剪。
                     Task 2.5 验收约束要求此字段放在 context_schema 中。
-    """
+        max_rewrite_count: GraphState.max_rewrite_count 的默认值来源。
+            条件边 route_after_grade 不从 context 读取（只能访问 state），
+            因此运行时读取的是 GraphState 中的值。此字段仅在初始化
+            GraphState 时作为默认值使用。"""
     max_iterations: int = 3
     max_tokens: int = 4000
+    max_rewrite_count: int = 1
 
 
 __all__ = [

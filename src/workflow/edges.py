@@ -19,6 +19,14 @@ logger = structlog.get_logger(__name__)
 
 
 # ============================================================
+# Phase 4 预留分支标签
+# ============================================================
+
+TOOL_CALL = "tool_call"
+"""工具调用分支 — Phase 4 实现工具路由时使用。当前仅预注册节点名，不实现路由逻辑。"""
+
+
+# ============================================================
 # 条件边路由函数
 # ============================================================
 
@@ -66,6 +74,42 @@ def route_after_classification(state: GraphState) -> str:
     )
     return FALLBACK
 
+
+# ============================================================
+# Task 2.6 文档评估后路由
+# ============================================================
+
+def route_after_grade(state: GraphState) -> str:
+    """条件边路由函数：grade 节点之后，根据文档相关性和重写次数决定下一跳。
+
+    [交叉验证] 纯函数，非 closure，max_rewrite_count 从 state 直接读取。
+
+    路由逻辑：
+        - 有相关文档（documents 非空）→ "memory"（正常生成）
+        - 无相关文档 + rewrite_count < max_rewrite_count → "rewrite"
+        - 无相关文档 + rewrite_count >= max_rewrite_count → "memory"（降级）
+
+    Args:
+        state: 当前图状态，需包含 documents、rewrite_count、max_rewrite_count
+
+    Returns:
+        下一跳节点名称："memory" / "rewrite"
+    """
+    docs = state.get("documents", [])
+    count = state.get("rewrite_count", 0)
+    max_count = state.get("max_rewrite_count", 1)
+
+    if docs:
+        return "memory"
+
+    if count < max_count:
+        return "rewrite"
+
+    return "memory"  # 降级：generate 节点处理空文档场景
+
+
 __all__ = [
     "route_after_classification",
+    "route_after_grade",
+    "TOOL_CALL",
 ]

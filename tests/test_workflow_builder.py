@@ -23,7 +23,7 @@ from src.workflow.builder import (
     _greeting_node,
     build_graph,
 )
-from src.workflow.edges import route_after_classification
+from src.workflow.edges import route_after_classification, route_after_grade, TOOL_CALL
 from src.workflow.routing import FALLBACK, GREETING, RETRIEVE
 
 
@@ -40,6 +40,8 @@ def _make_state(**overrides) -> dict:
         "iteration_count": 0,
         "route_decision": "",
         "summary": "",
+        "rewrite_count": 0,
+        "max_rewrite_count": 1,
     }
     base.update(overrides)
     return base
@@ -128,11 +130,14 @@ class TestBuildGraph:
         graph, _ = _build_graph_with_mocks()
         assert graph is not None
 
-    def test_contains_six_nodes(self):
-        """图包含 6 个业务节点：route, retrieve, memory, generate, greeting, fallback。"""
+    def test_contains_eight_nodes(self):
+        """图包含 8 个业务节点（Task 2.6 新增 grade, rewrite）。"""
         graph, _ = _build_graph_with_mocks()
         node_names = {n for n in graph.nodes.keys() if not n.startswith("__")}
-        expected = {"route", "retrieve", "memory", "generate", "greeting", "fallback"}
+        expected = {
+            "route", "retrieve", "grade", "rewrite",
+            "memory", "generate", "greeting", "fallback",
+        }
         assert node_names == expected
 
     def test_generate_has_end_as_successor(self):
@@ -153,7 +158,9 @@ class TestBuildGraph:
                 "documents": [],
                 "iteration_count": 0,
                 "route_decision": "",
-        "summary": "",
+                "summary": "",
+                "rewrite_count": 0,
+                "max_rewrite_count": 1,
             })
 
         # 图正常结束（到达 END），最后一条消息是 generate 节点的输出
@@ -188,7 +195,9 @@ class TestBuildGraph:
                 "documents": [],
                 "iteration_count": 0,
                 "route_decision": "",
-        "summary": "",
+                "summary": "",
+                "rewrite_count": 0,
+                "max_rewrite_count": 1,
             })
 
         # 最后一条消息应是问候回复
@@ -207,9 +216,74 @@ class TestBuildGraph:
                 "documents": [],
                 "iteration_count": 0,
                 "route_decision": "",
-        "summary": "",
+                "summary": "",
+                "rewrite_count": 0,
+                "max_rewrite_count": 1,
             })
 
         last_msg = result["messages"][-1]
         assert isinstance(last_msg, AIMessage)
         assert last_msg.content == FALLBACK_RESPONSE
+
+
+# ============================================================
+# route_after_grade 测试
+# ============================================================
+
+class TestRouteAfterGrade:
+    """文档评估后条件边路由测试。"""
+
+    def test_has_docs_routes_to_memory(self):
+        """有相关文档 → memory。"""
+        state = _make_state(
+            documents=[MagicMock()],
+            rewrite_count=0,
+        )
+        assert route_after_grade(state) == "memory"
+
+    def test_empty_docs_below_limit_routes_to_rewrite(self):
+        """无相关文档 + 未超上限 → rewrite。"""
+        state = _make_state(
+            documents=[],
+            rewrite_count=0,
+            max_rewrite_count=2,
+        )
+        assert route_after_grade(state) == "rewrite"
+
+    def test_empty_docs_at_limit_routes_to_memory(self):
+        """无相关文档 + 已达上限 → memory（降级）。"""
+        state = _make_state(
+            documents=[],
+            rewrite_count=2,
+            max_rewrite_count=2,
+        )
+        assert route_after_grade(state) == "memory"
+
+    def test_empty_docs_exceeded_limit_routes_to_memory(self):
+        """无相关文档 + 超过上限 → memory。"""
+        state = _make_state(
+            documents=[],
+            rewrite_count=3,
+            max_rewrite_count=2,
+        )
+        assert route_after_grade(state) == "memory"
+
+    def test_default_max_rewrite_count(self):
+        """默认 max_rewrite_count=1 时：0 → rewrite, 1 → memory。"""
+        state_0 = _make_state(documents=[], rewrite_count=0)
+        assert route_after_grade(state_0) == "rewrite"
+
+        state_1 = _make_state(documents=[], rewrite_count=1)
+        assert route_after_grade(state_1) == "memory"
+
+
+# ============================================================
+# TOOL_CALL 常量测试
+# ============================================================
+
+class TestToolCallConstant:
+    """Phase 4 预留分支标签测试。"""
+
+    def test_tool_call_constant_exists(self):
+        """TOOL_CALL 常量应等于 "tool_call"。"""
+        assert TOOL_CALL == "tool_call"

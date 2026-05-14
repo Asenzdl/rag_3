@@ -44,6 +44,8 @@ def initial_state(base_messages):
         iteration_count=0,
         route_decision="",
         summary="",
+        rewrite_count=0,
+        max_rewrite_count=1,
     )
 
 
@@ -242,6 +244,8 @@ class TestGraphStateConstruction:
             "documents": [Document(page_content="测试文档")],
             "iteration_count": 0,
             "route_decision": "",
+            "rewrite_count": 0,
+            "max_rewrite_count": 1,
         }
 
         assert len(state["messages"]) == 1
@@ -249,6 +253,8 @@ class TestGraphStateConstruction:
         assert len(state["documents"]) == 1
         assert state["iteration_count"] == 0
         assert state["route_decision"] == ""
+        assert state.get("rewrite_count") == 0
+        assert state.get("max_rewrite_count") == 1
 
     def test_initial_state_with_defaults(self):
         """初始状态应有合理的默认值。"""
@@ -258,12 +264,16 @@ class TestGraphStateConstruction:
             "documents": [],
             "iteration_count": 0,
             "route_decision": "",
+            "rewrite_count": 0,
+            "max_rewrite_count": 1,
         }
 
         assert state["messages"] == []
         assert state["documents"] == []
         assert state["iteration_count"] == 0
         assert state["route_decision"] == ""
+        assert state["rewrite_count"] == 0
+        assert state["max_rewrite_count"] == 1
 
 
 # ============================================================
