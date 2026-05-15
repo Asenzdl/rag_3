@@ -1,148 +1,147 @@
-"""CLI 交互入口：REPL 问答 + 会话状态管理。
-
-本模块是 Phase 1 RAG 系统的用户交互层，提供命令行问答界面。
+"""CLI 交互入口（Phase 2 LangGraph 版）：REPL 问答 + 流式输出 + 会话管理。
 
 核心设计：
-1. **REPL 模式**：while True + input() 的经典 Read-Eval-Print Loop，
-   每轮读取用户问题 → 调用 RAGChain → 打印回答。
+1. **LangGraph 工作流**：通过 build_graph + create_checkpointer 构建图，
+   替代 Phase 1 的 RAGChain。图内部管理检索、路由、生成全流程。
 
-2. **流式输出**：默认使用 RAGChain.stream() 逐 token 输出，
-   实现打字效果，提升用户体验。
+2. **流式输出**：使用 graph.stream(version="v2", stream_mode="messages")
+   逐 token 输出 generate 节点的回答，实现打字机效果。
+   通过 metadata["langgraph_node"] 过滤仅显示 generate 节点输出。
 
-3. **会话状态**：ChatSession 类封装对话历史（List[BaseMessage]），
-   为 Task 2.5 对话记忆预留数据结构。
+3. **会话管理**：SessionInfo 封装 thread_id + config，checkpointer
+   自动管理对话历史。与 Phase 1 的 ChatSession._history（持有数据）
+   不同，SessionInfo.thread_id 只持有引用——"持有引用"而非"持有数据"。
 
-4. **优雅退出**：捕获 KeyboardInterrupt / EOFError，打印告别信息后退出。
+4. **优雅退出**：捕获 KeyboardInterrupt / EOFError，打印告别信息 + thread_id
+   恢复提示，确保用户能用 --thread-id 恢复会话。
 
-5. **容错**：业务异常（RAGSystemError）不中断 REPL，未知异常兜底继续。
+5. **容错**：业务异常不中断 REPL；stream 异常回退 invoke；初始化异常退出。
 
 使用方式：
-    # 直接运行
-    python run.py
+    # 默认启动（新会话 + 流式输出）
+    python src/app.py
 
-    # 编程调用
-    from run import main
-    main()
+    # 恢复已有会话
+    python src/app.py --thread-id abc12345
+
+    # 关闭流式
+    python src/app.py --no-stream
 """
 
+import argparse
+import io
 import sys
+import uuid
+from dataclasses import dataclass
 from typing import List
 
 import structlog
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 from src.core.config import settings
 from src.core.exceptions import RAGSystemError
-from src.core.factories import create_rag_chain
-from src.generation.citation_chain import ValidatedCitation
-from src.generation.rag_chain import RAGChain
-from src.utils.logger import bind_request_id, setup_logging, unbind_request_id
+from src.utils.logger import setup_logging
+from src.workflow.builder import build_graph
+from src.workflow.checkpointer import create_checkpointer
+from src.workflow.state import GraphContext
 
 logger = structlog.get_logger(__name__)
 
 
 # ============================================================
-# ChatSession 类
+# 常量
+# ============================================================
+
+_EXIT_COMMANDS = {"exit", "quit"}
+"""退出命令集合（不区分大小写）。"""
+
+_STREAM_OUTPUT_NODES = {"generate"}
+"""流式输出允许的节点集合 — 仅 generate 节点的 token 输出到终端。
+为什么用集合而非单字符串：未来如果 greeting/fallback 也用 LLM 生成，扩展只需加元素。"""
+
+_WELCOME_MESSAGE = """========================================
+🤖 RAG 问答系统 v2.0（Phase 2 LangGraph 版）
+输入问题开始对话，输入 exit/quit 退出
+========================================"""
+
+_GOODBYE_MESSAGE = "👋 感谢使用，再见！"
+
+_RESUME_HINT = "💡 恢复会话：python src/app.py --thread-id {thread_id}"
+
+_SEPARATOR = "—" * 40
+
+
+# ============================================================
+# SessionInfo — Phase 2 会话元数据
 # ============================================================
 
 
-class ChatSession:
-    """CLI 会话状态管理器。
+@dataclass
+class SessionInfo:
+    """Phase 2 CLI 会话元数据 — 仅持有 handle，不持有数据。
 
     设计意图：
-        将"对话历史收集"与"CLI 交互循环"解耦，使会话状态可独立测试，
-        且为 Task 2.5 LangGraph 对话记忆预留数据结构兼容性。
+        Phase 1 的 ChatSession._history 持有数据本身（List[BaseMessage]），
+        Phase 2 的 SessionInfo.thread_id 持有数据的引用（checkpointer 中的键）。
+        这是从"持有数据"到"持有引用"的架构升级——类比 ORM 对象 vs 外键引用。
 
-    为什么用 List[BaseMessage] 而非 List[str]：
-        LangChain 的 Prompt 模板 chat_history 占位符期望
-        List[BaseMessage] 类型，直接使用此类型避免后续转换。
-
-    Args:
-        max_turns: 最大保留的对话轮数（默认 10）。
-            超过时自动丢弃最早的一轮（1 HumanMessage + 1 AIMessage）。
-            为什么需要限制：长对话的 history 会导致 Prompt token 爆炸，
-            限制轮数是简单有效的截断策略。
-
-    Attributes:
-        turn_count: 当前对话轮数
+    为什么 turn_count 不独立维护：
+        checkpointer 已管理 messages，turn_count 可从
+        len([m for m in state["messages"] if isinstance(m, HumanMessage)]) 推导。
+        独立维护会在 KeyboardInterrupt 后产生数据不一致
+        （turn_count 已 +1 但 messages 未持久化到当前轮）。
     """
 
-    def __init__(self, max_turns: int = 10):
-        """初始化会话。
+    thread_id: str
+    config: dict
 
-        步骤：
-            # 步骤 1：创建空历史列表 self._history: List[BaseMessage] = []
-            # 步骤 2：设置 self._max_turns = max_turns
-            # 步骤 3：设置 self.turn_count = 0
-        """
-        self._history: List[BaseMessage] = []
-        self._max_turns = max_turns
-        self.turn_count: int = 0
+    def __init__(self, thread_id: str):
+        self.thread_id = thread_id
+        self.config = {"configurable": {"thread_id": thread_id}}
 
-    def add_user_message(self, content: str) -> None:
-        """将用户消息添加到历史。
 
-        步骤：
-            # 步骤 1：创建 HumanMessage(content=content) 并 append 到 self._history
-            # 步骤 2：self.turn_count += 1
-            # 步骤 3：调用 self._trim_if_needed() 检查是否超出最大轮数
-        """
-        self._history.append(HumanMessage(content=content))
-        self.turn_count += 1
-        self._trim_if_needed()
+# ============================================================
+# CLI 参数解析
+# ============================================================
 
-    def add_ai_message(self, content: str) -> None:
-        """将 AI 回复添加到历史。
 
-        步骤：
-            # 步骤 1：创建 AIMessage(content=content) 并 append 到 self._history
-            # 注意：不加 turn_count，一轮 = 1 HumanMessage + 1 AIMessage
-        """
-        self._history.append(AIMessage(content=content))
+def parse_args() -> argparse.Namespace:
+    """解析 CLI 参数。
 
-    def get_history(self) -> List[BaseMessage]:
-        """返回当前对话历史的只读副本。
+    为什么用 argparse 而非 click/typer：
+        项目无 CLI 框架依赖，argparse 是标准库零依赖方案。
+        Phase 5 FastAPI 服务化后 CLI 参数可能不再需要，
+        不值得为临时性 CLI 引入第三方框架。
 
-        步骤：
-            # 返回 list(self._history)（浅拷贝，防止外部修改内部状态）
-        """
-        return list(self._history)
-
-    def clear(self) -> None:
-        """清空对话历史，重置 turn_count。
-
-        步骤：
-            # 步骤 1：self._history.clear()
-            # 步骤 2：self.turn_count = 0
-        """
-        self._history.clear()
-        self.turn_count = 0
-
-    def _trim_if_needed(self) -> None:
-        """当 history 条目数 > max_turns * 2 时，移除最早一轮。
-
-        为什么是 max_turns * 2：一轮包含 2 条消息（Human + AI），
-            所以 history 的最大条目数 = max_turns * 2。
-
-        步骤：
-            # 步骤 1：计算 max_messages = self._max_turns * 2
-            # 步骤 2：若 len(self._history) > max_messages →
-            #   移除 self._history 的前 2 个元素（最早的一轮对话）
-            #   为什么一次移除 2 个：保持 Human/AI 消息成对，避免孤立的 AIMessage
-            # 步骤 3：记录 debug 日志（当前 history 长度、被移除的轮数）
-        """
-        max_messages = self._max_turns * 2
-        if len(self._history) > max_messages:
-            # 移除最早的一轮（2 条消息：HumanMessage + AIMessage）
-            removed = self._history[:2]
-            del self._history[:2]
-            logger.debug(
-                "对话历史自动裁剪",
-                removed_count=len(removed),
-                current_history_len=len(self._history),
-                max_turns=self._max_turns,
-            )
+    参数优先级：CLI 参数 > 环境变量 > settings.py 默认值
+    """
+    parser = argparse.ArgumentParser(description="RAG 问答系统（Phase 2 LangGraph 版）")
+    parser.add_argument(
+        "--thread-id",
+        type=str,
+        default=None,
+        help="恢复已有会话（传入之前的 thread_id），不传则自动生成新会话",
+    )
+    parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        default=False,
+        help="关闭流式输出，回退到 invoke 模式",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="启用 DEBUG 日志 + stream_mode=['messages','updates'] 显示节点状态",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=4000,
+        help="覆写 GraphContext.max_tokens（memory 触发阈值），默认 4000",
+    )
+    return parser.parse_args()
 
 
 # ============================================================
@@ -153,251 +152,232 @@ class ChatSession:
 def format_sources(sources: List[str]) -> str:
     """将来源 URL 列表格式化为可读字符串。
 
-    为什么单独抽取为函数：
-        格式化逻辑可能变化（如添加编号、去重、截断过长 URL），
-        独立函数便于修改和测试。
-
     Args:
         sources: 来源 URL 列表（可能有重复）
 
     Returns:
-        格式化后的字符串，如：
-        "📚 来源：\n  [1] https://...\n  [2] https://..."
-        空列表返回空字符串。
+        格式化后的字符串，空列表返回空字符串。
     """
-    # 步骤 1：若 sources 为空 → 返回 ""
     if not sources:
         return ""
 
-    # 步骤 2：去重 — 用 dict.fromkeys(sources) 保持顺序去重
-    # 为什么用 dict.fromkeys 而非 set：set 不保持顺序，用户期望按检索排名展示
     unique_sources = list(dict.fromkeys(sources))
-
-    # 步骤 3：用 enumerate 从 1 开始编号，每行格式 "  [N] URL"
-    # 步骤 4：拼接为 "📚 来源：\n" + 编号列表
     lines = [f"  [{i}] {url}" for i, url in enumerate(unique_sources, 1)]
     return "📚 来源：\n" + "\n".join(lines)
 
 
-def format_citations(citations: List[ValidatedCitation]) -> str:
-    """将引用验证结果格式化为可读字符串。
+def _extract_sources(state_values: dict) -> list[str]:
+    """从图状态中提取来源 URL 列表。
 
-    Args:
-        citations: 引用验证结果列表
-
-    Returns:
-        格式化后的字符串，如：
-        "✅ 引用验证：\n  [1] ✅ https://...\n  [2] ❌ https://..."
-        空列表返回空字符串。
+    为什么独立为函数：
+        流式和非流式模式都需要从状态取来源，但取入口不同：
+        流式 = get_state(config).values，非流式 = result.value。
+        抽取为函数统一入口，避免两套提取逻辑。
     """
-    # 步骤 1：若 citations 为空 → 返回 ""
-    if not citations:
-        return ""
+    documents = state_values.get("documents", [])
+    return [doc.metadata.get("source", "") for doc in documents if doc.metadata.get("source")]
 
-    # 步骤 2：遍历 citations，每条格式 "  [N] ✅/❌ URL"
-    # is_valid=True → ✅，is_valid=False → ❌
-    lines = []
-    for c in citations:
-        icon = "✅" if c.is_valid else "❌"
-        lines.append(f"  [{c.number}] {icon} {c.url}")
 
-    # 步骤 3：拼接为 "✅ 引用验证：\n" + 验证列表
-    return "✅ 引用验证：\n" + "\n".join(lines)
+# ============================================================
+# 流式输出核心
+# ============================================================
+
+
+def _stream_response(
+    graph,
+    input_state: dict,
+    session: SessionInfo,
+    graph_context: GraphContext,
+    debug: bool = False,
+) -> str:
+    """流式输出核心 — 逐 token 显示 generate 节点的回答。
+
+    为什么 version="v2" 不可省略：
+        stream_mode="messages" 仅在 version="v2" 下生效。
+        v1 模式下 messages mode 行为不确定。
+
+    为什么用 dict 风格 chunk["type"] 而非 chunk.type：
+        StreamPart 是 TypedDict 子类，官方文档标准写法为 dict 风格。
+
+    为什么 context=graph_context 每次 stream 都传：
+        context 不被 checkpointer 持久化（三层配置架构），
+        每次 invoke/stream 需独立传入。
+    """
+    stream_mode = ["messages", "updates"] if debug else "messages"
+    full_answer = ""
+
+    print("\n🤖 答：", end="", flush=True)
+
+    try:
+        for part in graph.stream(
+            input_state,
+            config=session.config,
+            context=graph_context,
+            version="v2",
+            stream_mode=stream_mode,
+        ):
+            if part["type"] == "messages":
+                msg, metadata = part["data"]
+                if (
+                    isinstance(msg, (AIMessage, AIMessageChunk))
+                    and msg.content
+                    and metadata.get("langgraph_node") in _STREAM_OUTPUT_NODES
+                ):
+                    print(msg.content, end="", flush=True)
+                    full_answer += msg.content
+            elif part["type"] == "updates" and debug:
+                logger.debug("节点更新", data=part["data"])
+
+    except Exception as stream_err:
+        if full_answer:
+            print("\n[流式中断，重新获取完整回答...]")
+        logger.warning("流式输出失败，回退到同步模式", error=str(stream_err))
+
+        try:
+            result = graph.invoke(
+                input_state,
+                config=session.config,
+                context=graph_context,
+                version="v2",
+            )
+            if result.value and result.value.get("messages"):
+                ai_msg = result.value["messages"][-1]
+                if isinstance(ai_msg, AIMessage):
+                    full_answer = ai_msg.content
+                    print(full_answer)
+        except RAGSystemError:
+            raise
+        except Exception:
+            pass
+
+    if full_answer and not full_answer.endswith("\n"):
+        print()
+
+    return full_answer
+
+
+def _invoke_response(
+    graph,
+    input_state: dict,
+    session: SessionInfo,
+    graph_context: GraphContext,
+) -> str:
+    """非流式输出 — 一次性获取完整回答。
+
+    RAGSystemError 不做静默吞没：抛出让 cli_loop 的 except RAGSystemError
+    处理器统一打印错误信息，保持流式/非流式两路径的错误展示一致。
+    """
+    try:
+        result = graph.invoke(
+            input_state,
+            config=session.config,
+            context=graph_context,
+            version="v2",
+        )
+        if result.value and result.value.get("messages"):
+            ai_msg = result.value["messages"][-1]
+            if isinstance(ai_msg, AIMessage):
+                print(f"\n🤖 答：{ai_msg.content}")
+                return ai_msg.content
+    except RAGSystemError:
+        raise
+    except Exception:
+        pass
+    return ""
 
 
 # ============================================================
 # CLI REPL 循环
 # ============================================================
 
-# 退出命令集合（不区分大小写）
-_EXIT_COMMANDS = {"exit", "quit"}
 
-# 欢迎信息模板
-_WELCOME_MESSAGE = """========================================
-🤖 RAG 问答系统 v1.0（Phase 1 基础版）
-输入问题开始对话，输入 exit/quit 退出
-========================================"""
+def cli_loop(
+    graph,
+    session: SessionInfo,
+    use_stream: bool = True,
+    debug: bool = False,
+    graph_context: GraphContext | None = None,
+) -> None:
+    """REPL 主循环：读取用户输入 → 调用 LangGraph 图 → 打印回答。
 
-# 告别信息
-_GOODBYE_MESSAGE = "👋 感谢使用，再见！"
-
-# 分隔线
-_SEPARATOR = "—" * 40
-
-
-def cli_loop(chain: RAGChain, session: ChatSession) -> None:
-    """REPL 主循环：读取用户输入 → 调用 RAGChain → 打印回答。
-
-    设计意图：
-        将 REPL 循环逻辑与 main() 的初始化逻辑分离，
-        使 cli_loop 可接收 Mock 的 chain 进行测试。
-
-    为什么不在 cli_loop 中创建 RAGChain：
-        依赖倒置 — cli_loop 依赖 RAGChain 接口而非具体创建过程，
-        便于测试时注入 Mock 对象。
-
-    Args:
-        chain: 已初始化的 RAGChain 实例
-        session: 会话状态管理器
-
-    退出条件：
-        - 用户输入 "exit" / "quit"（不区分大小写）
-        - KeyboardInterrupt（Ctrl+C）
-        - EOFError（Ctrl+D / Ctrl+Z+Enter）
+    为什么每轮只传 HumanMessage 不传完整历史：
+        checkpointer 自动从存储中加载历史 messages 并与新传入的合并
+        （add_messages reducer）。完整传入会导致消息重复。
     """
-    # 步骤 1：打印欢迎信息（包含退出提示和当前配置摘要）
-    print(_WELCOME_MESSAGE)
+    if graph_context is None:
+        graph_context = GraphContext()
 
-    # 步骤 2：进入 while True 循环
+    print(_WELCOME_MESSAGE)
+    logger.info("会话开始", thread_id=session.thread_id)
+
+    try:
+        import structlog.contextvars
+        structlog.contextvars.bind_contextvars(thread_id=session.thread_id)
+    except (ImportError, AttributeError):
+        pass
+
     while True:
         try:
-            # 步骤 2a：使用 input("🤔 你：") 读取用户输入
             user_input = input("\n🤔 你：")
-
-            # 步骤 2b：strip 输入，若为空字符串 → continue（忽略空行）
             user_input = user_input.strip()
             if not user_input:
                 continue
 
-            # 步骤 2c：若输入.lower() in ("exit", "quit") → 打印告别信息 → break
             if user_input.lower() in _EXIT_COMMANDS:
                 print(_GOODBYE_MESSAGE)
                 break
 
-            # 步骤 2d：session.add_user_message(user_input)
-            session.add_user_message(user_input)
+            input_state = {"messages": [HumanMessage(content=user_input)]}
 
-            # 步骤 2e：bind_request_id() — 为本轮问答绑定追踪 ID
-            request_id = bind_request_id()
-            logger.info(
-                "开始处理问题",
-                question=user_input[:50],
-                turn_count=session.turn_count,
-                request_id=request_id,
-            )
+            logger.info("开始处理问题", question=user_input[:50])
 
-            # 步骤 2f：调用 chain.stream(user_input) 流式输出
-            # 累积完整回答到 full_answer 变量
-            # 每个 chunk 用 print(chunk, end="", flush=True) 输出
-            full_answer = ""
-            print("\n🤖 答：", end="", flush=True)
-            try:
-                for chunk in chain.stream(user_input):
-                    print(chunk, end="", flush=True)
-                    full_answer += chunk
-            except RAGSystemError:
-                # RAGSystemError 向上传播，由外层统一处理
-                # 为什么不在这里处理：保持异常处理路径一致，
-                # 所有 RAGSystemError 都在外层打印统一的 "❌ 系统错误" 消息
-                raise
-            except Exception as stream_err:
-                # 非系统异常（如网络抖动），回退到同步 invoke
-                logger.warning(
-                    "流式输出失败，回退到同步模式",
-                    error=str(stream_err),
+            if use_stream:
+                full_answer = _stream_response(
+                    graph, input_state, session, graph_context, debug,
                 )
-                try:
-                    result = chain.invoke(user_input)
-                    full_answer = result.answer
-                    print(full_answer)
-                except RAGSystemError:
-                    # 同步模式也抛出 RAGSystemError，向上传播
-                    raise
-                except Exception:
-                    # 同步也失败，full_answer 保持为空
-                    full_answer = ""
+            else:
+                full_answer = _invoke_response(
+                    graph, input_state, session, graph_context,
+                )
 
-            # 流式输出后 print() 补换行
-            # 为什么：stream() 最后一个 chunk 不含换行符，
-            #   后续输出（来源信息）会紧跟在回答文本后面
-            if full_answer and not full_answer.endswith("\n"):
-                print()
-
-            # 步骤 2g：流式输出完成后，获取 sources
-            # 通过 chain.retrieve(user_input) 获取 docs
-            # 从 docs 提取 sources
-            # 注意：retrieve 会触发二次检索，但这是最简实现
-            # TODO(Task 2.2): LangGraph 节点将 sources 写入状态，避免二次检索
-            sources: List[str] = []
+            # 获取来源信息
             try:
-                docs = chain.retrieve(user_input)
-                sources = [doc.metadata.get("source", "") for doc in docs]
+                state_values = graph.get_state(session.config).values
+                sources = _extract_sources(state_values)
             except Exception as e:
-                logger.warning(
-                    "获取来源失败",
-                    error=str(e),
-                )
+                logger.warning("获取来源失败", error=str(e))
+                sources = []
 
-            # 步骤 2h：调用 chain.extract_citations(full_answer, sources) 获取引用
-            citations: List[ValidatedCitation] = []
-            if full_answer and sources:
-                try:
-                    citations = chain.extract_citations(full_answer, sources)
-                except Exception as e:
-                    logger.warning(
-                        "引用提取失败",
-                        error=str(e),
-                    )
-
-            # 步骤 2i：打印 format_sources(sources)
             sources_str = format_sources(sources)
             if sources_str:
                 print(sources_str)
 
-            # 步骤 2j：打印 format_citations(citations)
-            citations_str = format_citations(citations)
-            if citations_str:
-                print(citations_str)
-
-            # 步骤 2k：session.add_ai_message(full_answer)
-            if full_answer:
-                session.add_ai_message(full_answer)
-
-            # 步骤 2l：unbind_request_id() — 清除请求上下文
-            unbind_request_id()
-
-            # 步骤 2m：打印分隔线
             print(_SEPARATOR)
 
         except KeyboardInterrupt:
-            # 步骤 3：优雅退出 — 打印告别信息 → break
-            # 为什么捕获 KeyboardInterrupt：Ctrl+C 是用户最常见的退出方式
-            # 为什么不 re-raise：用户主动中断不应产生 traceback
             print(f"\n{_GOODBYE_MESSAGE}")
+            print(_RESUME_HINT.format(thread_id=session.thread_id))
             break
 
         except EOFError:
-            # 步骤 4：优雅退出 — 打印告别信息 → break
-            # 为什么单独处理 EOFError：Windows 下 Ctrl+Z+Enter 触发 EOFError
-            #   而非 KeyboardInterrupt
             print(f"\n{_GOODBYE_MESSAGE}")
             break
 
         except RAGSystemError as e:
-            # 步骤 5：业务异常统一处理
-            # 打印用户友好的错误提示
-            # 不 break — 系统异常后继续等待下一个问题
-            # 为什么不退出：一次 LLM 调用失败不应终止整个会话
             print(f"\n❌ 系统错误：{e}")
-            logger.error(
-                "RAG 系统异常",
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            unbind_request_id()
+            logger.error("RAG 系统异常", error=str(e), error_type=type(e).__name__)
             print(_SEPARATOR)
 
         except Exception as e:
-            # 步骤 6：未知异常兜底
-            # 不 break — 继续等待下一个问题（容错）
             print(f"\n❌ 未预期的错误：{e}")
-            logger.error(
-                "未预期异常",
-                error=str(e),
-                error_type=type(e).__name__,
-            )
-            unbind_request_id()
+            logger.error("未预期异常", error=str(e), error_type=type(e).__name__)
             print(_SEPARATOR)
+
+    try:
+        import structlog.contextvars
+        structlog.contextvars.unbind_contextvars("thread_id")
+    except (ImportError, AttributeError):
+        pass
 
 
 # ============================================================
@@ -406,51 +386,40 @@ def cli_loop(chain: RAGChain, session: ChatSession) -> None:
 
 
 def main() -> None:
-    """CLI 入口函数：初始化 → 创建链 → 启动 REPL。
-
-    初始化顺序（为什么这样排序）：
-        1. load_dotenv() — 确保 API Key 可用（config.py 导入时需要）
-        2. setup_logging() — 配置日志（后续所有操作都有日志）
-        3. create_rag_chain(settings) — 通过工厂函数创建链（配置驱动）
-        4. cli_loop() — 启动 REPL（依赖 chain 实例）
-
-    Raises:
-        SystemExit: 初始化失败时（如向量库不存在）以非零状态码退出
-    """
-    # 步骤 1：load_dotenv(override=True) — 确保环境变量加载
-    # 为什么在 main 中再次调用：config.py 模块级调用只执行一次，
-    # 但 app.py 作为入口需显式确保环境变量就绪
+    """CLI 入口函数：初始化 → 创建图 → 启动 REPL。"""
+    args = parse_args()
     load_dotenv(override=True)
 
-    # 步骤 2：setup_logging(level="INFO", json_format=False)
-    # 为什么 json_format=False：CLI 开发环境使用控制台渲染器（带颜色、可读性好）
-    # TODO(Task 5.5): 日志级别和格式可从配置文件读取
-    setup_logging(level="INFO", json_format=False)
+    # Windows GBK 终端补偿：将 stdout/stderr 编码升到 UTF-8，避免 emoji/中文打印崩溃
+    if sys.stdout.encoding and sys.stdout.encoding.lower() in ("gbk", "gb2312"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
-    # 步骤 3：记录启动日志
-    logger.info("RAG CLI 启动")
+    setup_logging(level="DEBUG" if args.debug else "INFO", json_format=False)
 
-    # 步骤 4：创建 RAGChain（通过工厂函数，配置驱动）
+    thread_id = args.thread_id or uuid.uuid4().hex[:8]
+    session = SessionInfo(thread_id)
+    graph_context = GraphContext(max_tokens=args.max_tokens)
+
+    logger.info("LangGraph RAG CLI 启动", thread_id=session.thread_id)
+
     try:
-        chain = create_rag_chain(settings)
+        with create_checkpointer(settings) as checkpointer:
+            graph = build_graph(settings, checkpointer=checkpointer)
+            cli_loop(
+                graph,
+                session,
+                use_stream=not args.no_stream,
+                debug=args.debug,
+                graph_context=graph_context,
+            )
     except RAGSystemError as e:
-        logger.error("RAGChain 初始化失败", error=str(e))
+        logger.error("初始化失败", error=str(e))
         print(f"❌ 初始化失败：{e}")
         sys.exit(1)
     except Exception as e:
-        logger.error("未预期的初始化错误", error=str(e))
+        logger.error("初始化失败", error=str(e))
         print(f"❌ 初始化失败：{e}")
         sys.exit(1)
 
-    # 步骤 5：创建 ChatSession
-    session = ChatSession(max_turns=10)
-
-    # 步骤 6：启动 REPL 循环
-    cli_loop(chain, session)
-
-    # 步骤 7：记录退出日志
-    logger.info("RAG CLI 退出")
-
-
-# if __name__ == "__main__":
-#     main()
+    logger.info("LangGraph RAG CLI 退出")

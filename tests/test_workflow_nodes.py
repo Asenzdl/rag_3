@@ -20,15 +20,12 @@
 17. generate_node：引用提取失败 → 不影响生成结果
 """
 
-from typing import Any, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
-from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -54,68 +51,10 @@ from langgraph.runtime import Runtime
 from src.workflow.state import GraphContext
 
 
-# ============================================================
-# FakeChatModel — 替代 MagicMock，满足 LCEL Runnable 协议
-# ============================================================
-
-class FakeChatModel(BaseChatModel):
-    """可控的 Fake LLM — 返回预设消息，支持 LCEL 链（prompt | llm | parser）。
-
-    为什么用 FakeChatModel 而非 MagicMock（反直觉辩护）：
-        LCEL 的 | 操作符对操作数做 coerce_to_runnable() 校验，
-        MagicMock 不满足 Runnable 协议会被包装为 RunnableLambda，
-        导致 mock()（而非 mock.invoke()）被调用，返回值类型错误。
-        FakeChatModel 继承 BaseChatModel，| 操作正常工作，
-        同时通过 _response_content 属性控制返回内容。
-    """
-
-    _response_content: str = ""
-
-    def __init__(self, response_content: str = "测试回复", **kwargs: Any):
-        super().__init__(**kwargs)
-        self._response_content = response_content
-
-    @property
-    def _llm_type(self) -> str:
-        return "fake-chat-model"
-
-    def _generate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        ai_message = AIMessage(content=self._response_content)
-        ai_message.usage_metadata = {
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "total_tokens": 150,
-        }
-        return ChatResult(generations=[ChatGeneration(message=ai_message)])
+from tests._helpers import FakeChatModel, FailingChatModel
 
 
-class FailingChatModel(BaseChatModel):
-    """始终抛异常的 Fake LLM — 用于测试异常路径。"""
 
-    _error: Exception
-
-    def __init__(self, error: Exception, **kwargs: Any):
-        super().__init__(**kwargs)
-        self._error = error
-
-    @property
-    def _llm_type(self) -> str:
-        return "failing-chat-model"
-
-    def _generate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        raise self._error
 
 
 # ============================================================

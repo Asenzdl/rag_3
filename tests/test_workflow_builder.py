@@ -26,6 +26,8 @@ from src.workflow.builder import (
 from src.workflow.edges import route_after_classification, route_after_grade, TOOL_CALL
 from src.workflow.routing import FALLBACK, GREETING, RETRIEVE
 
+from tests._helpers import build_graph_with_mocks
+
 
 # ============================================================
 # Helpers
@@ -45,23 +47,6 @@ def _make_state(**overrides) -> dict:
     }
     base.update(overrides)
     return base
-
-
-def _build_graph_with_mocks():
-    """用 mock 依赖构建图，返回 (compiled_graph, mock_llm)。"""
-    from src.core.settings import Settings
-
-    mock_llm = MagicMock()
-
-    with patch("src.workflow.builder.create_retriever", return_value=MagicMock()), \
-         patch("src.workflow.builder.create_llm", return_value=mock_llm):
-        settings = Settings(
-            deepseek_api_key="test-key",
-            qwen_api_key="test-key",
-        )
-        graph = build_graph(settings)
-
-    return graph, mock_llm
 
 
 # ============================================================
@@ -127,12 +112,12 @@ class TestBuildGraph:
 
     def test_compiles_successfully(self):
         """图编译成功，无异常。"""
-        graph, _ = _build_graph_with_mocks()
+        graph, _ = build_graph_with_mocks()
         assert graph is not None
 
     def test_contains_eight_nodes(self):
         """图包含 8 个业务节点（Task 2.6 新增 grade, rewrite）。"""
-        graph, _ = _build_graph_with_mocks()
+        graph, _ = build_graph_with_mocks()
         node_names = {n for n in graph.nodes.keys() if not n.startswith("__")}
         expected = {
             "route", "retrieve", "grade", "rewrite",
@@ -148,7 +133,7 @@ class TestBuildGraph:
         替代方案：执行 retrieve 路径，验证图能正常到达 END（不抛异常），
         间接证明 generate 后的边连接正确。
         """
-        graph, mock_llm = _build_graph_with_mocks()
+        graph, mock_llm = build_graph_with_mocks()
 
         with patch("src.workflow.nodes.classify_intent", return_value=RETRIEVE):
             # mock retriever 返回空文档 → generate 返回空检索回复 → END
@@ -174,7 +159,7 @@ class TestBuildGraph:
         greeting/fallback 路径不依赖 LLM 生成（纯预设回复），
         但 route 节点需要 LLM 做意图分类。mock LLM 使其返回 "greeting"。
         """
-        graph, mock_llm = _build_graph_with_mocks()
+        graph, mock_llm = build_graph_with_mocks()
 
         # Mock LLM 使 StrOutputParser 解析后返回 "greeting"
         # route_node 内部链路: prompt | llm | StrOutputParser
@@ -207,7 +192,7 @@ class TestBuildGraph:
 
     def test_fallback_path_end_to_end(self):
         """端到端测试 fallback 路径：START → route → fallback → END。"""
-        graph, mock_llm = _build_graph_with_mocks()
+        graph, mock_llm = build_graph_with_mocks()
 
         with patch("src.workflow.nodes.classify_intent", return_value=FALLBACK):
             result = graph.invoke({

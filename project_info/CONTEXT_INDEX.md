@@ -20,7 +20,8 @@
 
 | 文件 | 公共 API |
 | :--- | :--- |
-| `src/app.py` | — |
+| `src/app.py` | `C:SessionInfo` `F:parse_args` `F:format_sources` `F:cli_loop` `F:main` — Phase 2 LangGraph CLI（流式输出 + 会话管理） |
+| `src/chain_app.py` | — Phase 1 RAGChain CLI（保留，可回退对比） |
 | `src/run.py` | `R:main` |
 
 ### `src/core/`
@@ -67,6 +68,19 @@
 | `src/workflow/routing.py` | `V:FALLBACK` `V:GREETING` `V:RETRIEVE` `F:classify_intent` |
 | `src/workflow/state.py` | `C:GraphState` `C:GraphContext` |
 
+### `tests/`
+
+> 测试套件 — 单元测试 + 端到端测试。
+
+| 文件 | 公共 API |
+| :--- | :--- |
+| `tests/_helpers.py` | `C:FakeChatModel` `C:FailingChatModel` `F:build_graph_with_mocks` `F:make_settings` `F:invoke_with_thread_id` |
+| `tests/conftest.py` | `F:mock_retriever` `F:default_runtime` — pytest fixtures |
+| `tests/test_e2e.py` | — Phase 1 CLI 端到端测试（chain_app.py） |
+| `tests/test_e2e_graph.py` | — Phase 2 LangGraph CLI 端到端测试（app.py） |
+| `tests/test_workflow_builder.py` | — 图构建 + 条件边路由测试 |
+| `tests/test_workflow_checkpointer.py` | — 检查点持久化 + 多轮对话状态测试 |
+| `tests/test_workflow_nodes.py` | — 工作流节点单元测试 |
 
 ## 🔗 路径映射
 

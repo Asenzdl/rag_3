@@ -20,43 +20,10 @@ import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from src.core.settings import Settings
-from src.workflow.builder import build_graph
 from src.workflow.checkpointer import create_checkpointer
 from src.workflow.routing import FALLBACK, GREETING, RETRIEVE
 
-
-# ============================================================
-# Helpers
-# ============================================================
-
-def _make_settings(checkpoint_db_path: str = ":memory:") -> Settings:
-    """创建测试用 Settings 实例。"""
-    return Settings(
-        deepseek_api_key="test-key",
-        qwen_api_key="test-key",
-        checkpoint_db_path=checkpoint_db_path,
-    )
-
-
-def _build_graph_with_mocks_and_checkpointer(
-    settings: Settings,
-    checkpointer: BaseCheckpointSaver | None = None,
-):
-    """用 mock 依赖构建图，支持可选 checkpointer。"""
-    mock_llm = MagicMock()
-
-    with patch("src.workflow.builder.create_retriever", return_value=MagicMock()), \
-         patch("src.workflow.builder.create_llm", return_value=mock_llm):
-        graph = build_graph(settings, checkpointer=checkpointer)
-
-    return graph, mock_llm
-
-
-def _invoke_with_thread_id(graph, messages_state: dict, thread_id: str) -> dict:
-    """使用指定 thread_id 调用图。"""
-    config = {"configurable": {"thread_id": thread_id}}
-    return graph.invoke(messages_state, config=config)
+from tests._helpers import build_graph_with_mocks, make_settings, invoke_with_thread_id
 
 
 # ============================================================
@@ -68,7 +35,7 @@ class TestCreateCheckpointer:
 
     def test_returns_base_checkpoint_saver(self):
         """create_checkpointer 返回 BaseCheckpointSaver 实例。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
             assert isinstance(checkpointer, BaseCheckpointSaver)
 
@@ -76,21 +43,21 @@ class TestCreateCheckpointer:
         """create_checkpointer 自动创建数据库目录。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "subdir", "checkpoints.db")
-            settings = _make_settings(db_path)
+            settings = make_settings(db_path)
 
             with create_checkpointer(settings) as checkpointer:
                 assert os.path.isdir(os.path.dirname(db_path))
 
     def test_setup_called_successfully(self):
         """setup() 调用成功——通过后续 invoke 验证表已创建。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
             # setup() 在 create_checkpointer 内部已调用
             # 验证方式：用 checkpointer 编译图并执行一次 invoke
-            graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+            graph, _ = build_graph_with_mocks(settings, checkpointer)
 
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                result = _invoke_with_thread_id(
+                result = invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="你好")],
@@ -116,8 +83,8 @@ class TestBuildGraphBackwardCompatibility:
 
     def test_no_checkpointer_still_works(self):
         """checkpointer=None 时图编译成功并可执行。"""
-        settings = _make_settings()
-        graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer=None)
+        settings = make_settings()
+        graph, _ = build_graph_with_mocks(settings, checkpointer=None)
 
         with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
             # 无 checkpointer 时不需 config
@@ -135,9 +102,9 @@ class TestBuildGraphBackwardCompatibility:
 
     def test_with_checkpointer_compiles(self):
         """带 checkpointer 时图编译成功。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
-            graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+            graph, _ = build_graph_with_mocks(settings, checkpointer)
             assert graph is not None
 
 
@@ -150,14 +117,14 @@ class TestMultiTurnStateAccumulation:
 
     def test_messages_accumulate_across_turns(self):
         """3 轮对话：messages 从 1→2→4→6 逐轮增长。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
-            graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+            graph, _ = build_graph_with_mocks(settings, checkpointer)
             thread_id = "accumulation-test"
 
             # 第 1 轮：1 HumanMessage → invoke 后 messages 包含 1 Human + 1 AI
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                result1 = _invoke_with_thread_id(
+                result1 = invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="你好")],
@@ -175,7 +142,7 @@ class TestMultiTurnStateAccumulation:
 
             # 第 2 轮：追加新 HumanMessage，invoke 后 messages 增长
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                result2 = _invoke_with_thread_id(
+                result2 = invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="你好呀")],
@@ -193,7 +160,7 @@ class TestMultiTurnStateAccumulation:
 
             # 第 3 轮：继续追加
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                result3 = _invoke_with_thread_id(
+                result3 = invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="再问一次")],
@@ -211,15 +178,15 @@ class TestMultiTurnStateAccumulation:
 
     def test_get_state_returns_complete_snapshot(self):
         """graph.get_state(config) 能获取到当前会话的完整状态快照。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
-            graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+            graph, _ = build_graph_with_mocks(settings, checkpointer)
             thread_id = "snapshot-test"
             config = {"configurable": {"thread_id": thread_id}}
 
             # 执行一轮对话
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                _invoke_with_thread_id(
+                invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="你好")],
@@ -252,15 +219,15 @@ class TestInterruptionRecovery:
         """模拟中途中断：关闭连接后重新创建 checkpointer，状态可恢复。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "checkpoints.db")
-            settings = _make_settings(db_path)
+            settings = make_settings(db_path)
             thread_id = "recovery-test"
 
             # 第1次连接：执行 1 轮对话
             with create_checkpointer(settings) as checkpointer:
-                graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+                graph, _ = build_graph_with_mocks(settings, checkpointer)
 
                 with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                    result1 = _invoke_with_thread_id(
+                    result1 = invoke_with_thread_id(
                         graph,
                         {
                             "messages": [HumanMessage(content="第一轮问题")],
@@ -280,10 +247,10 @@ class TestInterruptionRecovery:
 
             # 第2次连接：使用相同 thread_id 继续对话
             with create_checkpointer(settings) as checkpointer:
-                graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+                graph, _ = build_graph_with_mocks(settings, checkpointer)
 
                 with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                    result2 = _invoke_with_thread_id(
+                    result2 = invoke_with_thread_id(
                         graph,
                         {
                             "messages": [HumanMessage(content="第二轮问题")],
@@ -318,13 +285,13 @@ class TestThreadIdIsolation:
 
     def test_different_thread_ids_are_isolated(self):
         """两个不同 thread_id 各自独立，互不影响。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
-            graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+            graph, _ = build_graph_with_mocks(settings, checkpointer)
 
             # thread-1：执行 1 轮对话
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                result_t1 = _invoke_with_thread_id(
+                result_t1 = invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="线程1的问题")],
@@ -339,7 +306,7 @@ class TestThreadIdIsolation:
 
             # thread-2：执行 1 轮对话
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                result_t2 = _invoke_with_thread_id(
+                result_t2 = invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="线程2的问题")],
@@ -368,13 +335,13 @@ class TestThreadIdIsolation:
 
     def test_thread_isolation_across_turns(self):
         """不同 thread_id 在多轮后仍隔离。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
-            graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+            graph, _ = build_graph_with_mocks(settings, checkpointer)
 
             # thread-A：2 轮对话
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                _invoke_with_thread_id(
+                invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="A1")],
@@ -386,7 +353,7 @@ class TestThreadIdIsolation:
                     },
                     "thread-A",
                 )
-                _invoke_with_thread_id(
+                invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="A2")],
@@ -401,7 +368,7 @@ class TestThreadIdIsolation:
 
             # thread-B：1 轮对话
             with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                result_b = _invoke_with_thread_id(
+                result_b = invoke_with_thread_id(
                     graph,
                     {
                         "messages": [HumanMessage(content="B1")],
@@ -427,16 +394,16 @@ class TestTimeTravelDebugging:
 
     def test_get_state_history_returns_multiple_snapshots(self):
         """多轮对话后，get_state_history 返回多个 StateSnapshot。"""
-        settings = _make_settings(":memory:")
+        settings = make_settings(":memory:")
         with create_checkpointer(settings) as checkpointer:
-            graph, _ = _build_graph_with_mocks_and_checkpointer(settings, checkpointer)
+            graph, _ = build_graph_with_mocks(settings, checkpointer)
             thread_id = "history-test"
             config = {"configurable": {"thread_id": thread_id}}
 
             # 执行 3 轮对话
             for i in range(3):
                 with patch("src.workflow.nodes.classify_intent", return_value=GREETING):
-                    _invoke_with_thread_id(
+                    invoke_with_thread_id(
                         graph,
                         {
                             "messages": [HumanMessage(content=f"问题{i + 1}")],

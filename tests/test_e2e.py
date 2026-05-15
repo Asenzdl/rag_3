@@ -21,7 +21,7 @@ import pytest
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-from src.app import (
+from src.chain_app import (
     ChatSession,
     _EXIT_COMMANDS,
     _GOODBYE_MESSAGE,
@@ -606,9 +606,9 @@ class TestE2EWithQAPairs:
 class TestMain:
     """main() 函数的测试。"""
 
-    @patch("src.app.create_rag_chain")
-    @patch("src.app.setup_logging")
-    @patch("src.app.load_dotenv")
+    @patch("src.chain_app.create_rag_chain")
+    @patch("src.chain_app.setup_logging")
+    @patch("src.chain_app.load_dotenv")
     def test_main_success(self, mock_dotenv, mock_setup_logging, mock_create_chain, capsys):
         """main() 正常初始化并启动 REPL。"""
         # Mock create_rag_chain() 返回实例
@@ -626,9 +626,9 @@ class TestMain:
         # 验证 create_rag_chain() 被调用
         mock_create_chain.assert_called_once()
 
-    @patch("src.app.create_rag_chain")
-    @patch("src.app.setup_logging")
-    @patch("src.app.load_dotenv")
+    @patch("src.chain_app.create_rag_chain")
+    @patch("src.chain_app.setup_logging")
+    @patch("src.chain_app.load_dotenv")
     def test_main_init_failure(self, mock_dotenv, mock_setup_logging, mock_create_chain):
         """main() 初始化失败时以非零状态码退出。"""
         # Mock create_rag_chain() 抛出 RAGSystemError
